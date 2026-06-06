@@ -64,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-steps", type=positive_int, default=120)
     p.add_argument("--suite", choices=["standard", "stress", "adversarial", "regression", "all"], default="adversarial")
 
+    p = sub.add_parser("tune-safety", help="Sweep firewall thresholds and recommend a safety setting.")
+    p.add_argument("--model", default="runs/default/models/ghost_policy.pt")
+    p.add_argument("--out", default="runs/default/reports")
+    p.add_argument("--episodes", type=positive_int, default=20)
+    p.add_argument("--seed", type=int, default=707)
+    p.add_argument("--max-steps", type=positive_int, default=80)
+    p.add_argument("--suite", choices=["standard", "stress", "adversarial", "regression", "all"], default="regression")
+
     p = sub.add_parser("all", help="Run the complete pipeline.")
     p.add_argument("--out", default="runs/default")
     p.add_argument("--episodes-per-style", type=positive_int, default=80)
@@ -133,6 +141,13 @@ def main(argv: list[str] | None = None) -> int:
         result = run_scenario_suite(args.model, args.out, episodes=args.episodes, seed=args.seed, max_steps=args.max_steps, suite=args.suite, verbose=True)
         dashboard = make_safety_dashboard(args.out)
         print(json.dumps({"summary": result["summary"], "safety_dashboard": dashboard}, indent=2))
+        return 0
+
+    if args.command == "tune-safety":
+        from .evaluate import run_safety_threshold_sweep
+
+        result = run_safety_threshold_sweep(args.model, args.out, episodes=args.episodes, seed=args.seed, max_steps=args.max_steps, suite=args.suite, verbose=True)
+        print(json.dumps(result["summary"], indent=2))
         return 0
 
     if args.command == "all":

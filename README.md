@@ -56,6 +56,8 @@ runs/default/
   reports/dashboard.png
   reports/scenario_results.csv
   reports/scenario_summary.json
+  reports/safety_tuning.json
+  reports/replays/scenario_replays.json
   reports/safety_dashboard.png
   reports/safety_case.md
   videos/ghostfighter_demo.gif
@@ -101,6 +103,12 @@ Run deterministic benchmark scenarios:
 python -m ghostfighter.cli benchmark --model runs/default/models/ghost_policy.pt --out runs/default/reports --suite all --episodes 80
 ```
 
+Tune the safety firewall threshold on deterministic scenarios:
+
+```bash
+python -m ghostfighter.cli tune-safety --model runs/default/models/ghost_policy.pt --out runs/default/reports --suite regression --episodes 20
+```
+
 Render a demo GIF:
 
 ```bash
@@ -139,6 +147,8 @@ GhostFighter demonstrates that operating model end to end.
 - The benchmark suite includes normal matches, hardware-stress matches, and adversarial setups such as boundary traps, low-stamina rushes, damaged-leg pursuit, unstable recovery, and close-range brawls.
 - The safety firewall is evaluated as an ablation, so reviewers can compare raw policy behavior against the same policy with pre-controller shielding.
 - Counterfactual replay analyzes overridden actions from the same simulator state and reports avoided falls, boundary losses, damage, and balance loss.
+- Serialized replay bundles capture representative benchmark fights step by step for inspection without rerunning the simulator.
+- The safety tuning loop sweeps firewall thresholds and recommends the best setting for the current policy under a fall-averse benchmark objective.
 - Each full run writes a model card, run card, dashboard, safety dashboard, and safety case so results are inspectable without reading code first.
 
 ## Limits

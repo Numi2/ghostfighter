@@ -260,7 +260,13 @@ def run_scenario_suite(
     suite: str = "adversarial",
     verbose: bool = False,
 ) -> Dict[str, object]:
-    from .analysis import analyze_counterfactual_overrides, summarize_counterfactuals, write_safety_case
+    from .analysis import (
+        analyze_counterfactual_overrides,
+        serialize_replay_trace,
+        summarize_counterfactuals,
+        write_replay_bundle,
+        write_safety_case,
+    )
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -268,6 +274,7 @@ def run_scenario_suite(
     scenarios = scenario_suite(suite)
     rows: list[dict] = []
     counterfactuals: list[dict] = []
+    replays: list[dict] = []
     matches_per_scenario = max(1, episodes // max(1, len(scenarios)))
     for scenario in scenarios:
         for style_id, style_name in enumerate(STYLE_NAMES):
@@ -304,18 +311,100 @@ def run_scenario_suite(
                     if mode == "firewall":
                         for item in analyze_counterfactual_overrides(trace, scenario.name, style_name, match_seed):
                             counterfactuals.append(item)
+                        if ep == 0:
+                            replays.append(serialize_replay_trace(trace, scenario.name, style_name, mode, match_seed))
     df = pd.DataFrame(rows)
     df.to_csv(out_dir / "scenario_results.csv", index=False)
     cf_summary = summarize_counterfactuals(counterfactuals)
     summary = summarize_scenario_results(df)
     summary["counterfactuals"] = cf_summary
+    tuning = run_safety_threshold_sweep(model_path, out_dir, episodes=max(8, episodes // 4), seed=seed + 777, max_steps=max_steps, suite="regression", verbose=False)
+    summary["safety_tuning"] = tuning["summary"]
     summary["checkpoint_metrics"] = ckpt.get("metrics", {})
     with open(out_dir / "scenario_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
     write_safety_case(out_dir / "safety_case.md", summary, counterfactuals)
+    write_replay_bundle(out_dir / "replays" / "scenario_replays.json", replays)
     if counterfactuals:
         pd.DataFrame(counterfactuals).to_csv(out_dir / "counterfactual_overrides.csv", index=False)
-    return {"summary": summary, "rows": rows, "counterfactuals": counterfactuals}
+    return {"summary": summary, "rows": rows, "counterfactuals": counterfactuals, "replays": replays}
+
+
+def run_safety_threshold_sweep(
+    model_path: str | Path,
+    out_dir: str | Path,
+    episodes: int = 20,
+    seed: int = 707,
+    max_steps: int | None = None,
+    suite: str = "regression",
+    thresholds: Iterable[float] = (0.46, 0.54, 0.62, 0.70, 0.78),
+    verbose: bool = False,
+) -> Dict[str, object]:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model, _ = load_policy_checkpoint(str(model_path))
+    scenarios = scenario_suite(suite)
+    rows: list[dict] = []
+    matches_per_scenario = max(1, episodes // max(1, len(scenarios)))
+    for threshold in thresholds:
+        threshold = float(threshold)
+        for scenario in scenarios:
+            for style_id, style_name in enumerate(STYLE_NAMES):
+                if verbose:
+                    print(f"tuning threshold={threshold:0.2f}/{scenario.name}/{style_name}", flush=True)
+                for ep in range(matches_per_scenario):
+                    match_seed = int(seed + int(threshold * 1000) * 10_000 + scenario.seed_offset * 100 + style_id * 10 + ep)
+                    red_policy = NeuralGhostPolicy(model, style_id=style_id, deterministic=True, name=f"ghost_{style_name}")
+                    blue_policy = EnsembleOpponent(seed=match_seed + 17)
+                    firewall = CombatSafetyFirewall(threshold=threshold)
+                    result, _ = run_match(
+                        red_policy,
+                        blue_policy,
+                        seed=match_seed,
+                        style_name=style_name,
+                        mode="firewall_tuned",
+                        firewall=firewall,
+                        max_steps=max_steps or scenario.max_steps,
+                        collect_trace=False,
+                        stress_level=scenario.stress_level,
+                        scenario_setup=scenario.setup,
+                    )
+                    row = asdict(result)
+                    row.update({"threshold": threshold, "scenario": scenario.name, "suite": suite})
+                    rows.append(row)
+    df = pd.DataFrame(rows)
+    df.to_csv(out_dir / "safety_tuning.csv", index=False)
+    summary_rows = []
+    for threshold, group in df.groupby("threshold"):
+        win_rate = float((group["winner"] == 0).mean())
+        fall_rate = float((group["red_falls"] > 0).mean())
+        health_margin = float((group["red_health"] - group["blue_health"]).mean())
+        unsafe_rate = float(group["unsafe_rate"].mean())
+        avg_risk = float(group["avg_risk"].mean())
+        score = float(win_rate + 0.015 * health_margin - 1.10 * fall_rate - 0.10 * unsafe_rate)
+        summary_rows.append(
+            {
+                "threshold": float(threshold),
+                "matches": int(len(group)),
+                "score": score,
+                "win_rate": win_rate,
+                "red_fall_rate": fall_rate,
+                "avg_health_margin": health_margin,
+                "avg_unsafe_rate": unsafe_rate,
+                "avg_risk": avg_risk,
+            }
+        )
+    best = max(summary_rows, key=lambda item: item["score"]) if summary_rows else {}
+    summary = {
+        "suite": suite,
+        "objective": "maximize win_rate + 0.015*health_margin - 1.10*fall_rate - 0.10*unsafe_rate",
+        "recommended_threshold": best.get("threshold"),
+        "best": best,
+        "candidates": sorted(summary_rows, key=lambda item: item["threshold"]),
+    }
+    with open(out_dir / "safety_tuning.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    return {"summary": summary, "rows": rows}
 
 
 def _apply_initial_stress(env: FightEnv, rng: np.random.Generator, level: float) -> None:

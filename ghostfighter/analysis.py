@@ -88,12 +88,62 @@ def summarize_counterfactuals(rows: list[dict]) -> Dict[str, object]:
     }
 
 
+def serialize_replay_trace(
+    trace: Iterable[dict],
+    scenario: str,
+    style: str,
+    mode: str,
+    match_seed: int,
+    max_steps: int = 160,
+) -> Dict[str, object]:
+    steps = []
+    for item in list(trace)[:max_steps]:
+        decision = item.get("decision") or {}
+        steps.append(
+            {
+                "step": int(item.get("step", 0)),
+                "proposed_action": str(decision.get("proposed_action", "")),
+                "executed_action": str(decision.get("action", "")),
+                "blue_action": _action_name(item.get("action_blue")),
+                "risk": float(decision.get("risk", 0.0)),
+                "overridden": bool(decision.get("overridden", False)),
+                "reason": str(decision.get("reason", "")),
+                "events": item.get("events", []),
+                "red": item.get("red", {}),
+                "blue": item.get("blue", {}),
+            }
+        )
+    return {
+        "scenario": scenario,
+        "style": style,
+        "mode": mode,
+        "match_seed": int(match_seed),
+        "steps": steps,
+    }
+
+
+def write_replay_bundle(path: str | Path, replays: list[Dict[str, object]]) -> str:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"replays": replays}, indent=2), encoding="utf-8")
+    return str(path)
+
+
+def _action_name(action) -> str:
+    if action is None:
+        return ""
+    from .config import ACTION_NAMES
+
+    return ACTION_NAMES[int(action)]
+
+
 def write_safety_case(path: str | Path, summary: Dict[str, object], counterfactual_rows: list[dict]) -> str:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     by_mode = summary.get("by_mode", [])
     reasons = summary.get("firewall_reason_counts", {})
     counterfactuals = summary.get("counterfactuals", {})
+    tuning = summary.get("safety_tuning", {})
     text = f"""# GhostFighter Safety Case
 
 This report summarizes the benchmark evidence for the pre-controller combat safety firewall. The firewall does not replace the learned policy; it blocks high-risk skill tokens before execution and substitutes recovery, guard, or escape actions.
@@ -116,6 +166,14 @@ For each analyzed override, GhostFighter replays the same pre-step simulator sta
 
 ```json
 {json.dumps(counterfactuals, indent=2)}
+```
+
+## Self-Improvement Loop
+
+GhostFighter can sweep firewall thresholds on deterministic benchmark scenarios and recommend the best setting for the current policy.
+
+```json
+{json.dumps(tuning, indent=2)}
 ```
 
 ## Limits
