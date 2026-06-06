@@ -9,7 +9,7 @@ from ghostfighter.config import TrainConfig
 from ghostfighter.env import FightEnv
 from ghostfighter.evaluate import evaluate_policy, run_safety_threshold_sweep, run_scenario_suite
 from ghostfighter.improve import run_scale_study
-from ghostfighter.render import make_safety_dashboard
+from ghostfighter.render import make_safety_dashboard, render_env_frame
 from ghostfighter.selfplay import run_population_self_play
 from ghostfighter.rl import PPOConfig, _gae, _gae_by_episode, train_ppo_self_play
 from ghostfighter.robustness import run_robustness_ablations
@@ -100,6 +100,12 @@ def test_sync_vector_env_steps_batch():
     assert step.reward_red.shape == (3,)
 
 
+def test_gif_frame_renderer_is_polished_size():
+    env = FightEnv(seed=141)
+    frame = render_env_frame(env, "Replay", "visual smoke")
+    assert frame.size == (960, 640)
+
+
 def test_gae_respects_interleaved_episode_boundaries():
     cfg = PPOConfig(gamma=0.9, gae_lambda=0.8)
     rewards = np.array([1.0, 10.0, 1.0, 10.0], dtype="float32")
@@ -132,6 +138,9 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
     )
     assert result["summary"]["updates"] == 1
     assert Path(result["model_path"]).exists()
+    assert (tmp_path / "rl" / "ppo_incumbent.pt").exists()
+    assert (tmp_path / "rl" / "incumbent_summary.json").exists()
+    assert (tmp_path / "rl" / "INCUMBENT.md").exists()
     assert (tmp_path / "rl" / "ppo_training_curve.csv").exists()
     assert (tmp_path / "rl" / "ppo_reward_terms.csv").exists()
     assert (tmp_path / "rl" / "leaderboard.csv").exists()
@@ -145,6 +154,8 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
     assert "explained_variance" in result["curve"][0]
     assert "reward_mean_base_env_reward" in result["curve"][0]
     assert "final_reward_terms" in result["summary"]
+    assert "deployment_incumbent" in result["summary"]
+    assert result["curve"][0]["is_incumbent"] is True
 
 
 def test_tiny_robustness_and_replay_outputs(tmp_path: Path):
@@ -168,6 +179,10 @@ def test_tiny_robustness_and_replay_outputs(tmp_path: Path):
     replay = make_replay_viewer(result["model_path"], tmp_path / "replay", seed=213, max_steps=15, domain_randomization=False)
     assert Path(replay["replay"]).exists()
     assert Path(replay["viewer"]).exists()
+    html = Path(replay["viewer"]).read_text(encoding="utf-8")
+    assert "Reward Trace" in html
+    assert "GhostFighter Replay" in html
+    assert "play" in html.lower()
 
 
 def test_tiny_benchmark_outputs(tmp_path: Path):

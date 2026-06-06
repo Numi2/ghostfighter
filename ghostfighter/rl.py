@@ -111,17 +111,28 @@ def train_ppo_self_play(
     elo = {"ppo_current": 1000.0}
     rows = []
     reward_term_rows = []
+    incumbent: dict[str, object] | None = None
 
     for update in range(1, config.updates + 1):
         rollout = _collect_ppo_rollout(model, historical, role_population, config, rng, verbose=verbose)
         _ppo_update(model, optimizer, rollout, config)
         score = _update_training_elo(model, historical, role_population, rng, config)
         elo["ppo_current"] = score["elo"]
+        deployment_score = _deployment_score(score)
+        if incumbent is None or deployment_score > float(incumbent["deployment_score"]):
+            incumbent = {
+                "update": update,
+                "deployment_score": deployment_score,
+                "elo": float(score["elo"]),
+                "win_rate": float(score["win_rate"]),
+                "fall_rate": float(score["fall_rate"]),
+                "state": copy.deepcopy(model.state_dict()),
+            }
         if update % config.snapshot_interval == 0:
             snap_name = f"ppo_update_{update:03d}"
             historical.append({"name": snap_name, "state": copy.deepcopy(model.state_dict()), "elo": float(score["elo"])})
             elo[snap_name] = float(score["elo"])
-            _save_actor_checkpoint(ckpt_dir / f"{snap_name}.pt", model, config, {"update": update, "elo": score["elo"]})
+            _save_actor_checkpoint(ckpt_dir / f"{snap_name}.pt", model, config, {"update": update, "elo": score["elo"], "deployment_score": deployment_score})
         row = {
             "update": update,
             "episodes": int(rollout["episodes"]),
@@ -137,6 +148,8 @@ def train_ppo_self_play(
             "elo": float(score["elo"]),
             "eval_win_rate": float(score["win_rate"]),
             "eval_fall_rate": float(score["fall_rate"]),
+            "deployment_score": float(deployment_score),
+            "is_incumbent": bool(incumbent is not None and incumbent["update"] == update),
         }
         for name, value in rollout["reward_term_means"].items():
             row[f"reward_mean_{name}"] = float(value)
@@ -154,6 +167,7 @@ def train_ppo_self_play(
             print(f"ppo update {update}/{config.updates} return={row['mean_return']:.3f} elo={row['elo']:.1f}", flush=True)
 
     _save_actor_checkpoint(out_dir / "ppo_policy.pt", model, config, {"final_update": config.updates, "elo": elo["ppo_current"]})
+    incumbent_summary = _save_incumbent(out_dir, incumbent, config)
     curve = pd.DataFrame(rows)
     curve.to_csv(out_dir / "ppo_training_curve.csv", index=False)
     reward_terms = pd.DataFrame(reward_term_rows)
@@ -166,6 +180,7 @@ def train_ppo_self_play(
         "final_mean_return": float(curve["mean_return"].iloc[-1]) if not curve.empty else 0.0,
         "final_elo": float(elo["ppo_current"]),
         "final_reward_terms": rows[-1] if rows else {},
+        "deployment_incumbent": incumbent_summary,
         "historical_opponents": len(historical),
         "leaderboard": leaderboard["summary"],
         "config": config.__dict__,
@@ -477,6 +492,10 @@ def _update_training_elo(model, historical, role_population, rng, config: PPOCon
     return {"elo": float(elo), "win_rate": float(wins / max(1, played)), "fall_rate": float(falls / max(1, played))}
 
 
+def _deployment_score(score: dict[str, float]) -> float:
+    return float(score["elo"] + 120.0 * score["win_rate"] - 180.0 * score["fall_rate"])
+
+
 def run_policy_leaderboard(model, historical, role_population, out_dir: str | Path, seed: int = 2001, max_steps: int = 80) -> Dict[str, object]:
     out_dir = Path(out_dir)
     rng = np.random.default_rng(seed)
@@ -556,6 +575,52 @@ def _save_actor_checkpoint(path: Path, model: ActorCriticPolicy, config: PPOConf
         },
         path,
     )
+
+
+def _save_incumbent(out_dir: Path, incumbent: dict[str, object] | None, config: PPOConfig) -> dict[str, object]:
+    if incumbent is None:
+        return {}
+    model = ActorCriticPolicy(obs_dim=_state_obs_dim(incumbent["state"]), hidden=_state_hidden(incumbent["state"]))
+    model.load_state_dict(incumbent["state"])
+    model.eval()
+    summary = {
+        "update": int(incumbent["update"]),
+        "deployment_score": float(incumbent["deployment_score"]),
+        "elo": float(incumbent["elo"]),
+        "win_rate": float(incumbent["win_rate"]),
+        "fall_rate": float(incumbent["fall_rate"]),
+        "path": str(out_dir / "ppo_incumbent.pt"),
+    }
+    _save_actor_checkpoint(out_dir / "ppo_incumbent.pt", model, config, {"incumbent": summary})
+    (out_dir / "incumbent_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    _write_incumbent_md(out_dir / "INCUMBENT.md", summary)
+    return summary
+
+
+def _state_obs_dim(state: dict[str, torch.Tensor]) -> int:
+    return int(state["encoder.0.weight"].shape[1])
+
+
+def _state_hidden(state: dict[str, torch.Tensor]) -> int:
+    return int(state["encoder.0.weight"].shape[0])
+
+
+def _write_incumbent_md(path: Path, summary: dict[str, object]) -> None:
+    text = f"""# PPO Deployment Incumbent
+
+The deployment incumbent is the best retained PPO checkpoint by a conservative score:
+
+```text
+deployment_score = Elo + 120 * win_rate - 180 * fall_rate
+```
+
+This keeps the training loop from blindly shipping the latest update when a previous snapshot has better deployment evidence.
+
+```json
+{json.dumps(summary, indent=2)}
+```
+"""
+    path.write_text(text, encoding="utf-8")
 
 
 def _explained_variance(values, returns) -> float:

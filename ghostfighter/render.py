@@ -39,92 +39,129 @@ def render_env_frame(
     env: FightEnv,
     title: str,
     subtitle: str = "",
-    width: int = 720,
-    height: int = 520,
+    width: int = 960,
+    height: int = 640,
+    history: list[FightEnv] | None = None,
 ) -> Image.Image:
-    img = Image.new("RGB", (width, height), BG)
+    scale_factor = 2
+    width2, height2 = width * scale_factor, height * scale_factor
+    img = Image.new("RGB", (width2, height2), (18, 22, 28))
     d = ImageDraw.Draw(img)
-    font_title = _font(18)
-    font = _font(12)
-    small = _font(10)
-    margin = 34
-    panel_top = 58
-    panel_h = height - panel_top - 44
-    panel_w = width - 2 * margin
+    font_title = _font(24 * scale_factor)
+    font = _font(14 * scale_factor)
+    small = _font(11 * scale_factor)
+    tiny = _font(9 * scale_factor)
+    margin = 28 * scale_factor
+    panel_top = 72 * scale_factor
+    panel_h = height2 - panel_top - 124 * scale_factor
+    panel_w = width2 - 2 * margin
     cx = margin + panel_w / 2
     cy = panel_top + panel_h / 2
     scale = min(panel_w, panel_h) / (2 * env.config.arena_radius * 1.08)
 
-    d.text((margin, 16), title, fill=INK, font=font_title)
+    # Header.
+    d.rectangle((0, 0, width2, 68 * scale_factor), fill=(28, 34, 43))
+    d.text((margin, 15 * scale_factor), title, fill=(245, 247, 250), font=font_title)
     if subtitle:
-        d.text((margin, 39), subtitle, fill=(80, 80, 80), font=font)
+        d.text((margin, 45 * scale_factor), subtitle, fill=(168, 178, 190), font=font)
+    d.rounded_rectangle((width2 - 190 * scale_factor, 17 * scale_factor, width2 - margin, 51 * scale_factor), radius=10 * scale_factor, fill=(38, 46, 58), outline=(70, 84, 104), width=1 * scale_factor)
+    d.text((width2 - 178 * scale_factor, 25 * scale_factor), f"STEP {env.step_count}/{env.config.max_steps}", fill=(225, 231, 238), font=font)
 
+    # Arena.
     r = env.config.arena_radius * scale
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(80, 80, 80), width=3)
-    d.ellipse((cx - r * 0.72, cy - r * 0.72, cx + r * 0.72, cy + r * 0.72), outline=(220, 220, 220), width=1)
-    d.line((cx - r, cy, cx + r, cy), fill=(225, 225, 225), width=1)
-    d.line((cx, cy - r, cx, cy + r), fill=(225, 225, 225), width=1)
+    d.ellipse((cx - r - 18 * scale_factor, cy - r - 18 * scale_factor, cx + r + 18 * scale_factor, cy + r + 18 * scale_factor), fill=(22, 29, 37), outline=(53, 67, 84), width=2 * scale_factor)
+    for frac, color, w in [(1.0, (215, 220, 226), 3), (0.78, (63, 79, 99), 1), (0.48, (47, 59, 75), 1)]:
+        rr = r * frac
+        d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=color, width=w * scale_factor)
+    for a in range(0, 360, 30):
+        rad = math.radians(a)
+        x1, y1 = cx + math.cos(rad) * r * 0.48, cy + math.sin(rad) * r * 0.48
+        x2, y2 = cx + math.cos(rad) * r, cy + math.sin(rad) * r
+        d.line((x1, y1, x2, y2), fill=(37, 48, 62), width=1 * scale_factor)
+    d.line((cx - r, cy, cx + r, cy), fill=(48, 60, 76), width=1 * scale_factor)
+    d.line((cx, cy - r, cx, cy + r), fill=(48, 60, 76), width=1 * scale_factor)
 
     def xy(f):
         return cx + f.x * scale, cy - f.y * scale
 
+    def draw_trails():
+        if not history:
+            return
+        recent = history[-14:]
+        for idx, old in enumerate(recent):
+            alpha = (idx + 1) / max(1, len(recent))
+            for f, color in [(old.red, (230, 68, 64)), (old.blue, (74, 126, 255))]:
+                x, y = xy(f)
+                radius = (3 + 4 * alpha) * scale_factor
+                fill = tuple(int(20 + c * alpha * 0.55) for c in color)
+                d.ellipse((x - radius, y - radius, x + radius, y + radius), fill=fill)
+
     def draw_fighter(f, color, label):
         x, y = xy(f)
-        body_r = 14 if not f.fallen else 17
-        fill = tuple(int(c * (0.55 if f.fallen else 1.0)) for c in color)
-        d.ellipse((x - body_r, y - body_r, x + body_r, y + body_r), fill=fill, outline=INK, width=2)
-        hx = x + math.cos(f.theta) * 24
-        hy = y - math.sin(f.theta) * 24
-        d.line((x, y, hx, hy), fill=INK, width=3)
-        # Guard arc/arms.
+        body_r = (16 if not f.fallen else 20) * scale_factor
+        glow_r = body_r + 9 * scale_factor
+        fill = tuple(int(c * (0.50 if f.fallen else 1.0)) for c in color)
+        d.ellipse((x - glow_r, y - glow_r, x + glow_r, y + glow_r), fill=tuple(max(0, int(c * 0.25)) for c in color))
+        d.ellipse((x - body_r, y - body_r, x + body_r, y + body_r), fill=fill, outline=(245, 247, 250), width=2 * scale_factor)
+        hx = x + math.cos(f.theta) * 31 * scale_factor
+        hy = y - math.sin(f.theta) * 31 * scale_factor
+        d.line((x, y, hx, hy), fill=(245, 247, 250), width=4 * scale_factor)
         if f.guard > 0.35:
-            d.arc((x - 24, y - 24, x + 24, y + 24), start=205, end=335, fill=GREEN, width=3)
+            guard_r = 29 * scale_factor
+            d.arc((x - guard_r, y - guard_r, x + guard_r, y + guard_r), start=205, end=335, fill=(87, 221, 132), width=4 * scale_factor)
         if f.last_action in [ACTION_NAMES.index("jab"), ACTION_NAMES.index("cross"), ACTION_NAMES.index("hook"), ACTION_NAMES.index("push")]:
-            d.line((x, y, hx + math.cos(f.theta) * 13, hy - math.sin(f.theta) * 13), fill=ORANGE, width=4)
+            d.line((x, y, hx + math.cos(f.theta) * 17 * scale_factor, hy - math.sin(f.theta) * 17 * scale_factor), fill=(255, 180, 72), width=6 * scale_factor)
         if f.last_action == ACTION_NAMES.index("low_kick"):
-            d.line((x, y, hx + math.cos(f.theta) * 8, hy - math.sin(f.theta) * 8), fill=ORANGE, width=6)
-        d.text((x - 12, y + 18), label, fill=INK, font=small)
+            d.line((x, y, hx + math.cos(f.theta) * 11 * scale_factor, hy - math.sin(f.theta) * 11 * scale_factor), fill=(255, 180, 72), width=8 * scale_factor)
+        d.text((x - 8 * scale_factor, y - 8 * scale_factor), label, fill=(20, 22, 26), font=small)
         if f.last_override:
-            d.rectangle((x - 28, y - 34, x + 28, y - 22), fill=(255, 234, 188), outline=ORANGE)
-            d.text((x - 25, y - 35), "SAFE", fill=INK, font=small)
+            d.rounded_rectangle((x - 36 * scale_factor, y - 46 * scale_factor, x + 36 * scale_factor, y - 24 * scale_factor), radius=7 * scale_factor, fill=(255, 220, 120), outline=(255, 172, 48), width=2 * scale_factor)
+            d.text((x - 25 * scale_factor, y - 44 * scale_factor), "SAFE", fill=(35, 27, 10), font=tiny)
 
+    draw_trails()
     draw_fighter(env.red, RED, "R")
     draw_fighter(env.blue, BLUE, "B")
 
-    def bars(x, y, f, side_name, color):
-        d.text((x, y - 15), side_name, fill=INK, font=font)
+    def meter(x, y, w, label, val, maxv, color):
+        d.text((x, y - 18 * scale_factor), label, fill=(210, 218, 228), font=tiny)
+        d.rounded_rectangle((x, y, x + w, y + 12 * scale_factor), radius=5 * scale_factor, fill=(35, 42, 52), outline=(66, 78, 94), width=1 * scale_factor)
+        ww = max(0, min(w, val / maxv * w))
+        d.rounded_rectangle((x, y, x + ww, y + 12 * scale_factor), radius=5 * scale_factor, fill=color)
+
+    def card(x, y, f, side_name, color):
+        card_w = 285 * scale_factor
+        card_h = 98 * scale_factor
+        d.rounded_rectangle((x, y, x + card_w, y + card_h), radius=14 * scale_factor, fill=(28, 34, 43), outline=(58, 72, 90), width=1 * scale_factor)
+        d.ellipse((x + 14 * scale_factor, y + 15 * scale_factor, x + 42 * scale_factor, y + 43 * scale_factor), fill=color, outline=(235, 239, 244), width=1 * scale_factor)
+        d.text((x + 52 * scale_factor, y + 13 * scale_factor), side_name, fill=(244, 247, 250), font=font)
+        d.text((x + 52 * scale_factor, y + 38 * scale_factor), f"score {f.score:0.1f} | falls {f.falls}", fill=(159, 171, 187), font=tiny)
         for i, (name, val, maxv, bar_color) in enumerate(
             [
                 ("HP", f.health, 100.0, color),
-                ("BAL", f.balance, 1.0, GREEN),
-                ("STA", f.stamina, 1.0, ORANGE),
+                ("BAL", f.balance, 1.0, (84, 224, 135)),
+                ("STA", f.stamina, 1.0, (255, 183, 72)),
             ]
         ):
-            yy = y + i * 13
-            d.text((x, yy), name, fill=INK, font=small)
-            d.rectangle((x + 30, yy + 2, x + 130, yy + 9), outline=GRAY)
-            w = max(0, min(100, val / maxv * 100))
-            d.rectangle((x + 30, yy + 2, x + 30 + w, yy + 9), fill=bar_color)
-        d.text((x, y + 42), f"score {f.score:0.1f}  falls {f.falls}", fill=INK, font=small)
+            meter(x + 15 * scale_factor + i * 88 * scale_factor, y + 74 * scale_factor, 72 * scale_factor, name, val, maxv, bar_color)
         act = ACTION_NAMES[int(f.last_action)]
         if f.last_override:
             prop = ACTION_NAMES[int(f.last_proposed_action)]
-            act = f"{prop} → {act}"
-        d.text((x, y + 56), act[:22], fill=INK, font=small)
+            act = f"{prop}>{act}"
+        d.rounded_rectangle((x + 172 * scale_factor, y + 14 * scale_factor, x + 270 * scale_factor, y + 42 * scale_factor), radius=8 * scale_factor, fill=(39, 48, 61))
+        d.text((x + 181 * scale_factor, y + 21 * scale_factor), act[:13], fill=(234, 239, 246), font=tiny)
         if f.last_risk > 0:
-            d.text((x, y + 70), f"risk {f.last_risk:0.2f}", fill=INK, font=small)
+            d.text((x + 174 * scale_factor, y + 48 * scale_factor), f"risk {f.last_risk:0.2f}", fill=(255, 201, 98), font=tiny)
         damage = max(f.damage_vector())
         if damage > 0.02:
-            d.text((x, y + 84), f"damage {damage:0.2f}", fill=INK, font=small)
+            d.text((x + 224 * scale_factor, y + 48 * scale_factor), f"dmg {damage:0.2f}", fill=(255, 126, 112), font=tiny)
 
-    bars(34, height - 102, env.red, "RED ghost", RED)
-    bars(width - 180, height - 102, env.blue, "BLUE opponent", BLUE)
+    card(28 * scale_factor, height2 - 108 * scale_factor, env.red, "RED ghost", (230, 68, 64))
+    card(width2 - 313 * scale_factor, height2 - 108 * scale_factor, env.blue, "BLUE opponent", (74, 126, 255))
     event_text = " | ".join(e.text for e in env.last_events[-2:])
     if event_text:
-        d.rectangle((margin, panel_top + panel_h + 8, width - margin, panel_top + panel_h + 30), fill=(255, 255, 255), outline=(220, 220, 220))
-        d.text((margin + 7, panel_top + panel_h + 12), event_text[:95], fill=INK, font=small)
-    d.text((width - 130, 18), f"step {env.step_count}/{env.config.max_steps}", fill=(80, 80, 80), font=font)
-    return img
+        d.rounded_rectangle((width2 / 2 - 220 * scale_factor, height2 - 91 * scale_factor, width2 / 2 + 220 * scale_factor, height2 - 58 * scale_factor), radius=11 * scale_factor, fill=(46, 36, 27), outline=(255, 172, 64), width=1 * scale_factor)
+        d.text((width2 / 2 - 205 * scale_factor, height2 - 83 * scale_factor), event_text[:76], fill=(255, 216, 152), font=tiny)
+    return img.resize((width, height), Image.Resampling.LANCZOS)
 
 
 def make_demo_gif(
@@ -184,7 +221,8 @@ def make_demo_gif(
             if i % sample_every != 0 and i != len(trace) - 1:
                 continue
             env = item["env"]
-            frames.append(render_env_frame(env, title, subtitle))
+            hist = [h["env"] for h in trace[max(0, i - 14) : i + 1]]
+            frames.append(render_env_frame(env, title, subtitle, history=hist))
         # Hold title moment.
         if frames:
             frames.extend([frames[-1].copy() for _ in range(4)])
@@ -455,6 +493,9 @@ def write_run_card(run_dir: str | Path) -> str:
         ("selfplay/SELF_PLAY_CARD.md", "population self-play card"),
         ("selfplay/DOMAIN_RANDOMIZATION_CARD.md", "self-play domain-randomization card"),
         ("rl/ppo_policy.pt", "PPO-trained actor-critic policy"),
+        ("rl/ppo_incumbent.pt", "best retained PPO deployment incumbent"),
+        ("rl/incumbent_summary.json", "PPO deployment incumbent summary"),
+        ("rl/INCUMBENT.md", "PPO deployment incumbent report"),
         ("rl/ppo_training_curve.csv", "PPO self-play learning curve"),
         ("rl/ppo_reward_terms.csv", "PPO decomposed reward term table"),
         ("rl/ppo_summary.json", "PPO self-play training summary"),
