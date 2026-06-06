@@ -1,0 +1,85 @@
+{
+  "by_mode_style": [
+    {
+      "mode": "scripted_baseline",
+      "style": "bully",
+      "matches": 10,
+      "win_rate": 0.4,
+      "draw_rate": 0.0,
+      "red_fall_rate": 0.0,
+      "avg_red_falls": 0.0,
+      "avg_blue_falls": 0.7,
+      "avg_health_margin": 16.734529635080854,
+      "avg_score_margin": 21.469529635080853,
+      "avg_unsafe_rate": 0.0,
+      "avg_risk": 0.0,
+      "avg_attack_rate": 0.14885057471264368,
+      "avg_guard_rate": 0.23858237547892722,
+      "avg_entropy": 2.5748308555624257
+    },
+    {
+      "mode": "scripted_baseline",
+      "style": "counter",
+      "matches": 10,
+      "win_rate": 0.6,
+      "draw_rate": 0.4,
+      "red_fall_rate": 0.1,
+      "avg_red_falls": 0.1,
+      "avg_blue_falls": 0.0,
+      "avg_health_margin": 18.94192993415503,
+      "avg_score_margin": 19.891929934155016,
+      "avg_unsafe_rate": 0.0,
+      "avg_risk": 0.0,
+      "avg_attack_rate": 0.12685636856368562,
+      "avg_guard_rate": 0.41906504065040656,
+      "avg_entropy": 2.487192432773668
+    },
+    {
+      "mode": "scripted_baseline",
+      "style": "evasive",
+      "matches": 10,
+      "win_rate": 0.1,
+      "draw_rate": 0.1,
+      "red_fall_rate": 0.4,
+      "avg_red_falls": 0.7,
+      "avg_blue_falls": 0.0,
+      "avg_health_margin": -28.65040750303664,
+      "avg_score_margin": -34.925407503036624,
+      "avg_unsafe_rate": 0.0,
+      "avg_risk": 0.0,
+      "avg_attack_rate": 0.10833333333333332,
+      "avg_guard_rate": 0.14944444444444444,
+      "avg_entropy": 3.1100438407206985
+    },
+    {
+      "mode": "scripted_baseline",
+      "style": "pressure",
+      "matches": 10,
+      "win_rate": 0.4,
+      "draw_rate": 0.1,
+      "red_fall_rate": 0.5,
+      "avg_red_falls": 0.6,
+      "avg_blue_falls": 0.4,
+      "avg_health_margin": -0.26593070051628087,
+      "avg_score_margin": -1.5559307005162757,
+      "avg_unsafe_rate": 0.0,
+      "avg_risk": 0.0,
+      "avg_attack_rate": 0.1383333333333333,
+      "avg_guard_rate": 0.23888888888888887,
+      "avg_entropy": 2.919630606187293
+    }
+  ],
+  "by_mode": [
+    {
+      "mode": "scripted_baseline",
+      "matches": 40,
+      "win_rate": 0.375,
+      "red_fall_rate": 0.25,
+      "avg_red_falls": 0.35,
+      "avg_health_margin": 1.6900303414207407,
+      "avg_score_margin": 1.2200303414207425,
+      "avg_unsafe_rate": 0.0,
+      "avg_risk": 0.0
+    }
+  ]
+}

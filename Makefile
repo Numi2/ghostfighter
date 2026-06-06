@@ -1,0 +1,25 @@
+.PHONY: test smoke reference data train evaluate dashboard demo
+
+test:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
+
+smoke:
+	PYTHONPATH=. python -m ghostfighter.cli all --out runs/smoke --episodes-per-style 2 --epochs 1 --eval-episodes 8 --max-steps 40
+
+reference:
+	PYTHONPATH=. python -m ghostfighter.cli all --out runs/reference --episodes-per-style 60 --epochs 6 --eval-episodes 32 --max-steps 90 --stress
+
+data:
+	PYTHONPATH=. python -m ghostfighter.cli generate-data --out runs/default/data/traces.npz --episodes-per-style 80
+
+train:
+	PYTHONPATH=. python -m ghostfighter.cli train --data runs/default/data/traces.npz --out runs/default/models --epochs 8 --batch-size 2048
+
+evaluate:
+	PYTHONPATH=. python -m ghostfighter.cli evaluate --model runs/default/models/ghost_policy.pt --out runs/default/reports --episodes 80 --scripted-baseline --stress
+
+dashboard:
+	PYTHONPATH=. python -m ghostfighter.cli dashboard --reports runs/default/reports
+
+demo:
+	PYTHONPATH=. python -m ghostfighter.cli demo --model runs/default/models/ghost_policy.pt --out runs/default/videos/ghostfighter_demo.gif --style pressure

@@ -1,0 +1,31 @@
+{
+  "path": "/mnt/data/ghostfighter_run/data/traces.npz",
+  "episodes": 240,
+  "episodes_per_style": 60,
+  "samples": 72000,
+  "obs_dim": 80,
+  "mean_reward": 0.0384129099547863,
+  "style_counts": {
+    "pressure": 60,
+    "counter": 60,
+    "evasive": 60,
+    "bully": 60
+  },
+  "action_counts": {
+    "guard": 18549,
+    "step_forward": 11301,
+    "step_back": 3459,
+    "sidestep_left": 1751,
+    "sidestep_right": 1850,
+    "circle_left": 10433,
+    "circle_right": 7932,
+    "jab": 3018,
+    "cross": 1672,
+    "hook": 1596,
+    "low_kick": 1450,
+    "push": 1677,
+    "recover": 7312
+  },
+  "steps": 36000,
+  "seed": 101
+}

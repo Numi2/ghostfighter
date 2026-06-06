@@ -1,0 +1,21 @@
+[project]
+name = "ghostfighter"
+version = "1.0.0"
+description = "Autonomous robot-combat imitation pipeline with style cloning, policy evaluation, and a safety firewall."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+    "matplotlib>=3.7",
+    "imageio>=2.31",
+    "pandas>=2.0",
+    "Pillow>=9.0"
+]
+
+[project.scripts]
+ghostfighter = "ghostfighter.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
