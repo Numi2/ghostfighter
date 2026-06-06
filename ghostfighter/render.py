@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from .config import ACTION_NAMES, STYLE_NAMES
 from .env import FightEnv, SimConfig
-from .evaluate import run_match
+from .evaluate import run_match, _setup_boundary_trap
 from .models import load_policy_checkpoint
 from .policies import EnsembleOpponent, NeuralGhostPolicy, ScriptedPilot
 from .safety import CombatSafetyFirewall
@@ -113,6 +113,9 @@ def render_env_frame(
         d.text((x, y + 56), act[:22], fill=INK, font=small)
         if f.last_risk > 0:
             d.text((x, y + 70), f"risk {f.last_risk:0.2f}", fill=INK, font=small)
+        damage = max(f.damage_vector())
+        if damage > 0.02:
+            d.text((x, y + 84), f"damage {damage:0.2f}", fill=INK, font=small)
 
     bars(34, height - 102, env.red, "RED ghost", RED)
     bars(width - 180, height - 102, env.blue, "BLUE opponent", BLUE)
@@ -155,6 +158,23 @@ def make_demo_gif(
     firewall = CombatSafetyFirewall(threshold=0.62)
     res, trace = run_match(safe, opponent, seed=seed + 21, style_name=style_name, mode="ghost_firewall", firewall=firewall, max_steps=max_steps, collect_trace=True)
     segments.append(("3. Ghost + combat safety firewall", "unsafe actions are replaced before execution", trace))
+    # Segment 4: adversarial safety case.
+    safe = NeuralGhostPolicy(model, style_id=style_id, deterministic=True)
+    opponent = EnsembleOpponent(seed=seed + 40)
+    firewall = CombatSafetyFirewall(threshold=0.62)
+    res, trace = run_match(
+        safe,
+        opponent,
+        seed=seed + 41,
+        style_name=style_name,
+        mode="ghost_firewall_adversarial",
+        firewall=firewall,
+        max_steps=min(max_steps, 95),
+        collect_trace=True,
+        stress_level=0.45,
+        scenario_setup=_setup_boundary_trap,
+    )
+    segments.append(("4. Adversarial boundary trap", "firewall under low-balance ring pressure", trace))
 
     for title, subtitle, trace in segments:
         if not trace:
@@ -242,12 +262,140 @@ def make_dashboard(report_dir: str | Path, out_path: str | Path | None = None) -
     return str(out_path)
 
 
+def make_safety_dashboard(report_dir: str | Path, out_path: str | Path | None = None) -> str:
+    report_dir = Path(report_dir)
+    out_path = Path(out_path) if out_path else report_dir / "safety_dashboard.png"
+    scenario_path = report_dir / "scenario_results.csv"
+    summary_path = report_dir / "scenario_summary.json"
+    if not scenario_path.exists():
+        raise FileNotFoundError(f"Missing scenario results: {scenario_path}")
+    df = pd.read_csv(scenario_path)
+    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
+
+    by_scenario = df.groupby(["scenario", "mode"]).agg(
+        win_rate=("winner", lambda x: float((x == 0).mean())),
+        fall_rate=("red_falls", lambda x: float((x > 0).mean())),
+        unsafe_rate=("unsafe_rate", "mean"),
+    ).reset_index()
+    scenarios = list(dict.fromkeys(df["scenario"].tolist()))
+    raw = by_scenario[by_scenario["mode"] == "raw"].set_index("scenario").reindex(scenarios).fillna(0)
+    firewall = by_scenario[by_scenario["mode"] == "firewall"].set_index("scenario").reindex(scenarios).fillna(0)
+    reasons = summary.get("firewall_reason_counts", {})
+    counter = summary.get("counterfactuals", {})
+
+    fig = plt.figure(figsize=(13, 9))
+    ax1 = fig.add_subplot(2, 2, 1)
+    ax2 = fig.add_subplot(2, 2, 2)
+    ax3 = fig.add_subplot(2, 2, 3)
+    ax4 = fig.add_subplot(2, 2, 4)
+
+    x = np.arange(len(scenarios))
+    width = 0.36
+    ax1.bar(x - width / 2, raw["fall_rate"], width, label="raw")
+    ax1.bar(x + width / 2, firewall["fall_rate"], width, label="firewall")
+    ax1.set_xticks(x, scenarios, rotation=24, ha="right")
+    ax1.set_ylim(0, 1)
+    ax1.set_title("Adversarial red fall rate")
+    ax1.legend()
+
+    ax2.bar(x - width / 2, raw["win_rate"], width, label="raw")
+    ax2.bar(x + width / 2, firewall["win_rate"], width, label="firewall")
+    ax2.set_xticks(x, scenarios, rotation=24, ha="right")
+    ax2.set_ylim(0, 1)
+    ax2.set_title("Scenario win rate")
+    ax2.legend()
+
+    top_reasons = list(reasons.items())[:8]
+    labels = [r for r, _ in top_reasons] or ["none"]
+    vals = [v for _, v in top_reasons] or [0]
+    ax3.barh(np.arange(len(labels)), vals)
+    ax3.set_yticks(np.arange(len(labels)), labels)
+    ax3.invert_yaxis()
+    ax3.set_title("Firewall override reasons")
+
+    counter_labels = ["avoided fall", "avoided boundary", "damage saved", "balance saved"]
+    counter_vals = [
+        counter.get("avoided_fall_rate", 0.0),
+        counter.get("avoided_boundary_loss_rate", 0.0),
+        counter.get("avg_avoided_damage", 0.0),
+        counter.get("avg_balance_saved", 0.0),
+    ]
+    ax4.bar(counter_labels, counter_vals)
+    ax4.set_title("One-step counterfactual safety deltas")
+    ax4.tick_params(axis="x", rotation=18)
+
+    fig.suptitle("GhostFighter safety benchmark dashboard", fontsize=16)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=160)
+    plt.close(fig)
+    return str(out_path)
+
+
+def write_model_card(run_dir: str | Path) -> str:
+    run_dir = Path(run_dir)
+    card_path = run_dir / "MODEL_CARD.md"
+    data_summary = json.loads((run_dir / "data" / "traces.summary.json").read_text()) if (run_dir / "data" / "traces.summary.json").exists() else {}
+    train_metrics = json.loads((run_dir / "models" / "training_metrics.json").read_text()) if (run_dir / "models" / "training_metrics.json").exists() else {}
+    eval_summary = json.loads((run_dir / "reports" / "eval_summary.json").read_text()) if (run_dir / "reports" / "eval_summary.json").exists() else {}
+    scenario_summary = json.loads((run_dir / "reports" / "scenario_summary.json").read_text()) if (run_dir / "reports" / "scenario_summary.json").exists() else {}
+    text = f"""# GhostFighter Model Card
+
+## Model
+
+GhostFighter uses a conditional behavior-cloning policy. A single PyTorch network receives the combat observation plus a style embedding and predicts one high-level humanoid skill token.
+
+## Training Data
+
+- Episodes: {data_summary.get('episodes', 'n/a')}
+- Trace samples: {data_summary.get('samples', 'n/a')}
+- Observation dimension: {data_summary.get('obs_dim', 'n/a')}
+- Styles: {', '.join(STYLE_NAMES)}
+
+## Training Metrics
+
+- Validation action accuracy: {train_metrics.get('val_acc', 'n/a')}
+- Best validation action accuracy: {train_metrics.get('best_val_acc', 'n/a')}
+- Dataset samples: {train_metrics.get('dataset_samples', 'n/a')}
+
+## Evaluation
+
+```json
+{json.dumps(eval_summary.get('by_mode', []), indent=2)}
+```
+
+## Safety Benchmark
+
+```json
+{json.dumps(scenario_summary.get('by_mode', []), indent=2)}
+```
+
+## Intended Use And Limits
+
+This is a self-contained autonomy and safety architecture prototype for robot-combat policy development. It is not a hardware dynamics certificate. The simulator uses high-level skill tokens so reviewers can inspect the data flywheel, policy cloning, stress evaluation, and safety-firewall design without external robotics stacks.
+"""
+    card_path.write_text(text, encoding="utf-8")
+    return str(card_path)
+
+
 def write_run_card(run_dir: str | Path) -> str:
     run_dir = Path(run_dir)
     card_path = run_dir / "RUN_CARD.md"
     data_summary = json.loads((run_dir / "data" / "traces.summary.json").read_text()) if (run_dir / "data" / "traces.summary.json").exists() else {}
     train_metrics = json.loads((run_dir / "models" / "training_metrics.json").read_text()) if (run_dir / "models" / "training_metrics.json").exists() else {}
     eval_summary = json.loads((run_dir / "reports" / "eval_summary.json").read_text()) if (run_dir / "reports" / "eval_summary.json").exists() else {}
+    scenario_summary = json.loads((run_dir / "reports" / "scenario_summary.json").read_text()) if (run_dir / "reports" / "scenario_summary.json").exists() else {}
+    extra_files = []
+    for rel, desc in [
+        ("reports/scenario_results.csv", "scenario benchmark results"),
+        ("reports/scenario_summary.json", "aggregated scenario benchmark"),
+        ("reports/safety_dashboard.png", "safety benchmark dashboard"),
+        ("reports/safety_case.md", "explainable safety case"),
+        ("MODEL_CARD.md", "model card"),
+    ]:
+        if (run_dir / rel).exists():
+            extra_files.append(f"- `{rel}`: {desc}")
+    extra_text = "\n".join(extra_files)
     text = f"""# GhostFighter Run Card
 
 This run demonstrates the complete pipeline: pilot trace generation, conditional behavior cloning, autonomous match evaluation, safety-firewall ablation, dashboard generation, and demo rendering.
@@ -272,6 +420,12 @@ The central ablation is `raw` versus `firewall`. The raw ghost executes its chos
 {json.dumps(eval_summary.get('by_mode', []), indent=2)}
 ```
 
+## Safety Benchmark
+
+```json
+{json.dumps(scenario_summary.get('by_mode', []), indent=2)}
+```
+
 ## Files
 
 - `data/traces.npz`: logged pilot traces
@@ -281,6 +435,7 @@ The central ablation is `raw` versus `firewall`. The raw ghost executes its chos
 - `reports/eval_summary.json`: aggregated evaluation
 - `reports/dashboard.png`: visual summary
 - `videos/ghostfighter_demo.gif`: rendered demonstration
+{extra_text}
 """
     card_path.write_text(text, encoding="utf-8")
     return str(card_path)

@@ -56,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reports", default="runs/default/reports")
     p.add_argument("--out", default=None)
 
+    p = sub.add_parser("benchmark", help="Run deterministic scenario benchmark suites.")
+    p.add_argument("--model", default="runs/default/models/ghost_policy.pt")
+    p.add_argument("--out", default="runs/default/reports")
+    p.add_argument("--episodes", type=positive_int, default=40)
+    p.add_argument("--seed", type=int, default=444)
+    p.add_argument("--max-steps", type=positive_int, default=120)
+    p.add_argument("--suite", choices=["standard", "stress", "adversarial", "regression", "all"], default="adversarial")
+
     p = sub.add_parser("all", help="Run the complete pipeline.")
     p.add_argument("--out", default="runs/default")
     p.add_argument("--episodes-per-style", type=positive_int, default=80)
@@ -66,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-steps", type=positive_int, default=180)
     p.add_argument("--demo-style", choices=STYLE_NAMES, default="pressure")
     p.add_argument("--stress", action="store_true", help="Include hardware-stress evaluation modes.")
+    p.add_argument("--benchmark", action="store_true", help="Run scenario benchmark, safety dashboard, safety case, and model card.")
     return parser
 
 
@@ -117,10 +126,19 @@ def main(argv: list[str] | None = None) -> int:
         print(path)
         return 0
 
+    if args.command == "benchmark":
+        from .evaluate import run_scenario_suite
+        from .render import make_safety_dashboard
+
+        result = run_scenario_suite(args.model, args.out, episodes=args.episodes, seed=args.seed, max_steps=args.max_steps, suite=args.suite, verbose=True)
+        dashboard = make_safety_dashboard(args.out)
+        print(json.dumps({"summary": result["summary"], "safety_dashboard": dashboard}, indent=2))
+        return 0
+
     if args.command == "all":
         from .dataset import generate_trace_dataset
         from .evaluate import evaluate_policy, evaluate_scripted_baseline
-        from .render import make_dashboard, make_demo_gif, write_run_card
+        from .render import make_dashboard, make_demo_gif, make_safety_dashboard, write_model_card, write_run_card
         from .train import train_behavior_cloning
 
         run_dir = Path(args.out)
@@ -139,13 +157,49 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(eval_result["summary"], indent=2), flush=True)
         print("[4/6] evaluating scripted baseline", flush=True)
         evaluate_scripted_baseline(report_dir, episodes=max(40, args.eval_episodes // 2), seed=args.seed + 3, verbose=True)
-        print("[5/6] rendering dashboard and demo", flush=True)
+        if args.benchmark:
+            from .evaluate import run_scenario_suite
+
+            print("[5/8] running scenario benchmark", flush=True)
+            benchmark_result = run_scenario_suite(
+                train_result["model_path"],
+                report_dir,
+                episodes=max(40, args.eval_episodes // 2),
+                seed=args.seed + 5,
+                max_steps=args.max_steps,
+                suite="all",
+                verbose=True,
+            )
+            print(json.dumps(benchmark_result["summary"], indent=2), flush=True)
+            print("[6/8] rendering dashboards and demo", flush=True)
+        else:
+            print("[5/6] rendering dashboard and demo", flush=True)
         dashboard_path = make_dashboard(report_dir)
+        safety_dashboard_path = make_safety_dashboard(report_dir) if args.benchmark else None
         style_id = STYLE_NAMES.index(args.demo_style)
         gif_path = make_demo_gif(train_result["model_path"], video_path, style_id=style_id, seed=args.seed + 4, max_steps=min(120, args.max_steps))
-        print("[6/6] writing run card", flush=True)
+        if args.benchmark:
+            print("[7/8] writing model card", flush=True)
+            model_card_path = write_model_card(run_dir)
+            print("[8/8] writing run card", flush=True)
+        else:
+            model_card_path = None
+            print("[6/6] writing run card", flush=True)
         card_path = write_run_card(run_dir)
-        print(json.dumps({"run_dir": str(run_dir), "dashboard": dashboard_path, "demo_gif": gif_path, "run_card": card_path}, indent=2), flush=True)
+        print(
+            json.dumps(
+                {
+                    "run_dir": str(run_dir),
+                    "dashboard": dashboard_path,
+                    "safety_dashboard": safety_dashboard_path,
+                    "demo_gif": gif_path,
+                    "model_card": model_card_path,
+                    "run_card": card_path,
+                },
+                indent=2,
+            ),
+            flush=True,
+        )
         return 0
 
     parser.error("Unknown command")

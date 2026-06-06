@@ -37,7 +37,7 @@ The project does not require MuJoCo, Isaac, ROS, or a GPU. It is intentionally s
 ## Run the complete pipeline
 
 ```bash
-python -m ghostfighter.cli all --out runs/default --episodes-per-style 80 --epochs 8 --eval-episodes 160 --stress
+python -m ghostfighter.cli all --out runs/default --episodes-per-style 80 --epochs 8 --eval-episodes 160 --stress --benchmark
 ```
 
 This creates:
@@ -54,8 +54,19 @@ runs/default/
   reports/scripted_baseline.csv
   reports/scripted_baseline_summary.json
   reports/dashboard.png
+  reports/scenario_results.csv
+  reports/scenario_summary.json
+  reports/safety_dashboard.png
+  reports/safety_case.md
   videos/ghostfighter_demo.gif
+  MODEL_CARD.md
   RUN_CARD.md
+```
+
+For a fast end-to-end smoke run:
+
+```bash
+make smoke
 ```
 
 ## Individual commands
@@ -82,6 +93,12 @@ Create the dashboard:
 
 ```bash
 python -m ghostfighter.cli dashboard --reports runs/default/reports
+```
+
+Run deterministic benchmark scenarios:
+
+```bash
+python -m ghostfighter.cli benchmark --model runs/default/models/ghost_policy.pt --out runs/default/reports --suite all --episodes 80
 ```
 
 Render a demo GIF:
@@ -116,6 +133,13 @@ The firewall is a pre-controller gate. It does not replace the policy. It filter
 A robot-combat company will not only need better walking or better punching. It will need a way to convert simulator activity into autonomous fighters, evaluate policies over thousands of matches, protect hardware from unstable learned behavior, and explain why a policy is safe enough to test.
 
 GhostFighter demonstrates that operating model end to end.
+
+## What makes this credible
+
+- The benchmark suite includes normal matches, hardware-stress matches, and adversarial setups such as boundary traps, low-stamina rushes, damaged-leg pursuit, unstable recovery, and close-range brawls.
+- The safety firewall is evaluated as an ablation, so reviewers can compare raw policy behavior against the same policy with pre-controller shielding.
+- Counterfactual replay analyzes overridden actions from the same simulator state and reports avoided falls, boundary losses, damage, and balance loss.
+- Each full run writes a model card, run card, dashboard, safety dashboard, and safety case so results are inspectable without reading code first.
 
 ## Limits
 
