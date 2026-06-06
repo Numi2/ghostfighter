@@ -2,22 +2,22 @@
 
 GhostFighter is a complete, self-contained prototype for autonomous humanoid robot combat development.
 
-teh pipeline:
+the pipeline:
 
-1. Generate fight logs from distinct pilot styles.
-2. Train a conditional autonomous ghost fighter from those traces.
+1. Generate fight logs from distinct pilot policies.
+2. Train a conditional autonomous ghost policy from those traces.
 3. Evaluate the same policy with and without a pre-controller safety firewall.
 4. Render a demo fight and produce an evaluation dashboard.
 5. Package all logs, metrics, models, and reports so the work can be reviewed like an internal engineering artifact.
 
-goal is to make the sim fights become a data flywheel: pilot traces become autonomous styles, autonomous styles are stress-tested in batch, and risky actions are blocked before a real robot ever receives them.
+The goal is to make simulated fights become a robot-learning data flywheel: pilot traces become reusable autonomous policies, those policies are stress-tested in batch, and risky actions are blocked before a real robot ever receives them.
 
 ## What is implemented
 
 - High-level humanoid combat simulator with ring boundary, stamina, guard, balance, actuator damage, cooldowns, knockdowns, and scoring.
-- Four pilot styles: `pressure`, `counter`, `evasive`, and `bully`.
-- Dataset generator that logs observations, actions, rewards, style ids, episode ids, and fighter ids.
-- Conditional PyTorch behavior-cloning policy that can act as different ghost styles.
+- Four pilot policy archetypes: `pressure`, `counter`, `evasive`, and `bully`.
+- Dataset generator that logs observations, actions, rewards, policy-condition ids, episode ids, and fighter ids.
+- Conditional PyTorch behavior-cloning policy that can execute different policy archetypes from the same network.
 - Combat safety firewall that estimates risk from balance, stamina, boundary pressure, actuator damage, cooldown state, momentum, incoming contact, and likely whiffs.
 - Raw-vs-firewall evaluation harness, including optional hardware-stress matches with actuator damage, low balance, perturbations, and boundary pressure.
 - Scripted baseline evaluation.
@@ -140,9 +140,9 @@ guard, step_forward, step_back, sidestep_left, sidestep_right,
 circle_left, circle_right, jab, cross, hook, low_kick, push, recover
 ```
 
-This is deliberate. GhostFighter focuses on the autonomy layer above motor control: data generation, style-conditioned policy learning, safety shielding, adversarial evaluation, replayable evidence, and scaling studies. The same architecture can sit above a lower-level MuJoCo, Isaac, Unitree, or real-robot controller when raw dynamics integration is the next target.
+This is deliberate. GhostFighter focuses on the autonomy layer above motor control: data generation, policy-conditioned learning, safety shielding, adversarial evaluation, replayable evidence, and scaling studies. The same architecture can sit above a lower-level MuJoCo, Isaac, Unitree, or real-robot controller when raw dynamics integration is the next target.
 
-The policy is conditional on style. A single network receives the current observation and a style id, then predicts the next high-level combat action. This creates a practical path from human/sim pilot traces to autonomous ghost fighters.
+The learned controller is a conditional policy. A single network receives the current observation plus a policy-condition id, then predicts the next high-level combat action. In robotics terms, the condition selects among behavior modes learned from pilot traces: closing distance, waiting for counter opportunities, circling away from contact, or forcing close-range pressure. In fighting-genre terms, those behavior modes read like fighting styles, which is why the project labels them `pressure`, `counter`, `evasive`, and `bully`. The technical object is still a policy: an observation-to-action mapping that can be evaluated, stress-tested, shielded, and improved over time.
 
 The firewall is a pre-controller gate. It does not replace the policy. It filters the policy’s proposed action and replaces unsafe commands with recover, guard, step, or escape actions when risk is high.
 
@@ -164,4 +164,4 @@ GhostFighter demonstrates that operating model end to end.
 
 ## Limits
 
-This is not a physically exact humanoid dynamics simulator. It is a high-level combat autonomy testbed. It models the operational constraints that matter for the portfolio signal: style data, policy cloning, batch evaluation, action safety, knockdown risk, boundary pressure, damage-aware behavior, and reproducible reporting.
+This is not a physically exact humanoid dynamics simulator. It is a high-level combat autonomy testbed. It models the operational constraints that matter for the portfolio signal: pilot policy data, policy cloning, batch evaluation, action safety, knockdown risk, boundary pressure, damage-aware behavior, and reproducible reporting.
