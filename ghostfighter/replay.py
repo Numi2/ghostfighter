@@ -62,6 +62,11 @@ def record_policy_replay(
                 "blue_action": ACTION_NAMES[action_blue],
                 "reward_red": float(reward_red),
                 "reward_blue": float(reward_blue),
+                "distance": float(np.hypot(env.red.x - env.blue.x, env.red.y - env.blue.y)),
+                "red_edge_clearance": float(env.config.arena_radius - np.hypot(env.red.x, env.red.y)),
+                "blue_edge_clearance": float(env.config.arena_radius - np.hypot(env.blue.x, env.blue.y)),
+                "red_max_damage": float(max(env.red.damage_vector())),
+                "blue_max_damage": float(max(env.blue.damage_vector())),
                 "winner": int(env.winner()) if done else None,
                 "events": info["events"],
                 "red": _fighter(env.red),
@@ -119,7 +124,7 @@ def _html(replay: dict[str, object]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GhostFighter Replay Viewer</title>
   <style>
-    :root {{ color-scheme: dark; --bg:#11161d; --panel:#1b232e; --line:#334155; --text:#e8edf5; --muted:#93a4b8; --red:#ef4b48; --blue:#4f8cff; --gold:#ffbf5b; --green:#61dc8b; }}
+    :root {{ color-scheme: dark; --bg:#11161d; --panel:#1b232e; --line:#334155; --text:#e8edf5; --muted:#93a4b8; --red:#ef4b48; --blue:#4f8cff; --gold:#ffbf5b; --green:#61dc8b; --danger:#ff7a6b; }}
     * {{ box-sizing: border-box; }}
     body {{ margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background: radial-gradient(circle at 50% 0%, #273446 0, var(--bg) 42rem); color: var(--text); }}
     main {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
@@ -129,8 +134,9 @@ def _html(replay: dict[str, object]) -> str:
     .layout {{ display:grid; grid-template-columns:minmax(420px, 1.4fr) minmax(300px, .8fr); gap:18px; align-items:start; }}
     .surface {{ background:rgba(27,35,46,.86); border:1px solid var(--line); border-radius:8px; box-shadow:0 18px 60px rgba(0,0,0,.28); }}
     canvas {{ width:100%; aspect-ratio:1/1; display:block; border-radius:8px; }}
-    .controls {{ display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:14px; margin-top:12px; }}
+    .controls {{ display:grid; grid-template-columns:auto auto 1fr auto; gap:12px; align-items:center; padding:14px; margin-top:12px; }}
     button {{ border:1px solid #51637a; background:#263244; color:var(--text); border-radius:8px; padding:9px 13px; cursor:pointer; }}
+    button:hover {{ background:#314159; }}
     input[type=range] {{ width:100%; accent-color:var(--gold); }}
     .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }}
     .metric {{ padding:14px; }}
@@ -143,6 +149,9 @@ def _html(replay: dict[str, object]) -> str:
     .side h2 {{ margin:0 0 12px; font-size:16px; }}
     .event {{ padding:9px 0; border-top:1px solid #2c3848; color:#dbe5f2; font-size:13px; }}
     .event:first-child {{ border-top:0; }}
+    .chips {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }}
+    .chip {{ border:1px solid #405168; background:#202b39; border-radius:999px; padding:6px 9px; color:#d9e4f2; font-size:12px; }}
+    .chip strong {{ color:#fff; }}
     .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; color:#b7c6d9; overflow:auto; max-height:150px; white-space:pre-wrap; }}
     @media (max-width: 900px) {{ main {{ padding:14px; }} header,.layout {{ display:block; }} .side {{ margin-top:14px; }} }}
   </style>
@@ -161,6 +170,7 @@ def _html(replay: dict[str, object]) -> str:
       <div class="surface"><canvas id="arena" width="860" height="860"></canvas></div>
       <div class="controls surface">
         <button id="play">Play</button>
+        <button id="snapshot">PNG</button>
         <input id="scrub" type="range" min="0" max="0" value="0">
         <span id="caption" class="mono"></span>
       </div>
@@ -176,6 +186,7 @@ def _html(replay: dict[str, object]) -> str:
         <div class="metric surface"><div class="label">Step</div><div id="stepNo" class="value"></div></div>
         <div class="metric surface"><div class="label">Action</div><div id="actions" class="value"></div></div>
       </div>
+      <div class="side surface"><h2>Tactical Telemetry</h2><div id="telemetry"></div></div>
       <div class="side surface"><h2>Fighter State</h2><div id="state"></div></div>
       <div class="side surface"><h2>Events</h2><div id="events"></div></div>
       <div class="side surface"><h2>Domain Profile</h2><div id="domain" class="mono"></div></div>
@@ -194,6 +205,20 @@ let playing = false;
 let timer = null;
 scrub.max = Math.max(0, frames.length - 1);
 scrub.addEventListener('input', () => draw(Number(scrub.value)));
+document.addEventListener('keydown', (event) => {{
+  if (event.key === 'ArrowRight') {{
+    scrub.value = Math.min(frames.length - 1, Number(scrub.value) + 1);
+    draw(Number(scrub.value));
+  }}
+  if (event.key === 'ArrowLeft') {{
+    scrub.value = Math.max(0, Number(scrub.value) - 1);
+    draw(Number(scrub.value));
+  }}
+  if (event.key === ' ') {{
+    event.preventDefault();
+    document.getElementById('play').click();
+  }}
+}});
 document.getElementById('play').addEventListener('click', () => {{
   playing = !playing;
   document.getElementById('play').textContent = playing ? 'Pause' : 'Play';
@@ -204,6 +229,12 @@ document.getElementById('play').addEventListener('click', () => {{
     draw(next);
   }}, 120);
   else clearInterval(timer);
+}});
+document.getElementById('snapshot').addEventListener('click', () => {{
+  const link = document.createElement('a');
+  link.download = `ghostfighter-step-${{frames[Number(scrub.value)].step}}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 }});
 function sx(x) {{ return canvas.width / 2 + x / replay.arena_radius * canvas.width * 0.42; }}
 function sy(y) {{ return canvas.height / 2 - y / replay.arena_radius * canvas.height * 0.42; }}
@@ -231,6 +262,30 @@ function fighter(f, color, label) {{
   ctx.lineTo(x + Math.cos(f.theta) * 36, y - Math.sin(f.theta) * 36);
   ctx.stroke();
 }}
+function drawRangeAndBoundary(f) {{
+  const midx = (sx(f.red.x) + sx(f.blue.x)) / 2;
+  const midy = (sy(f.red.y) + sy(f.blue.y)) / 2;
+  ctx.strokeStyle = f.distance < 0.9 ? 'rgba(255,191,91,.85)' : 'rgba(147,164,184,.45)';
+  ctx.setLineDash([8, 8]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(sx(f.red.x), sy(f.red.y));
+  ctx.lineTo(sx(f.blue.x), sy(f.blue.y));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#dbe5f2';
+  ctx.font = '13px ui-monospace, monospace';
+  ctx.fillText(`${{f.distance.toFixed(2)}}m`, midx + 8, midy - 8);
+  for (const [side, color] of [[f.red, 'rgba(239,75,72,.28)'], [f.blue, 'rgba(79,140,255,.25)']]) {{
+    const edge = replay.arena_radius - Math.hypot(side.x, side.y);
+    if (edge < 0.7) {{
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sx(side.x), sy(side.y), 46, 0, Math.PI * 2);
+      ctx.fill();
+    }}
+  }}
+}}
 function drawTrails(i) {{
   for (let k = Math.max(0, i - 16); k < i; k++) {{
     const a = (k - Math.max(0, i - 16) + 1) / 16;
@@ -253,6 +308,12 @@ function drawReward(i) {{
     if (idx === 0) rctx.moveTo(x, y); else rctx.lineTo(x, y);
   }});
   rctx.stroke();
+  frames.forEach((frame, idx) => {{
+    if (!frame.events.length) return;
+    const x = idx / Math.max(1, vals.length - 1) * rewardCanvas.width;
+    rctx.fillStyle = frame.events.some(e => e.kind === 'fall') ? '#ff7a6b' : '#61dc8b';
+    rctx.fillRect(x - 2, 8, 4, 18);
+  }});
   rctx.fillStyle = '#e8edf5';
   rctx.fillRect(i / Math.max(1, vals.length - 1) * rewardCanvas.width - 2, 0, 4, rewardCanvas.height);
 }}
@@ -268,6 +329,7 @@ function draw(i) {{
   ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
   [0.20,0.32].forEach(r => {{ ctx.beginPath(); ctx.arc(canvas.width/2, canvas.height/2, canvas.width*r, 0, Math.PI*2); ctx.stroke(); }});
   drawTrails(i);
+  drawRangeAndBoundary(f);
   fighter(f.red, '#c0322e', 'R');
   fighter(f.blue, '#3056aa', 'B');
   document.getElementById('caption').textContent = `step ${{f.step}} | red: ${{f.red_action}} | blue: ${{f.blue_action}}`;
@@ -276,12 +338,26 @@ function draw(i) {{
   document.getElementById('blueScore').textContent = f.blue.score.toFixed(1);
   document.getElementById('stepNo').textContent = `${{i+1}}/${{frames.length}}`;
   document.getElementById('actions').textContent = `${{f.red_action}} / ${{f.blue_action}}`;
+  document.getElementById('telemetry').innerHTML = telemetryPanel(f);
   document.getElementById('state').innerHTML = fighterPanel('Red', f.red, 'var(--red)') + fighterPanel('Blue', f.blue, 'var(--blue)');
   document.getElementById('events').innerHTML = f.events.length ? f.events.map(e => `<div class="event">${{e.text}} (${{e.kind}})</div>`).join('') : '<div class="event">No event</div>';
   drawReward(i);
 }}
 function fighterPanel(name, f, color) {{
-  return `<div class="event"><b style="color:${{color}}">${{name}}</b> score ${{f.score.toFixed(1)}} falls ${{f.falls}}<br>${{meter('health', f.health/100, color)}}${{meter('balance', f.balance, 'var(--green)')}}${{meter('stamina', f.stamina, 'var(--gold)')}}</div>`;
+  const damage = Math.max(...f.damage);
+  return `<div class="event"><b style="color:${{color}}">${{name}}</b> score ${{f.score.toFixed(1)}} falls ${{f.falls}}${{f.fallen ? ' <span class="chip"><strong>fallen</strong></span>' : ''}}<br>${{meter('health', f.health/100, color)}}${{meter('balance', f.balance, 'var(--green)')}}${{meter('stamina', f.stamina, 'var(--gold)')}}${{meter('damage', damage, 'var(--danger)')}}</div>`;
+}}
+function telemetryPanel(f) {{
+  const redEdge = f.red_edge_clearance;
+  const blueEdge = f.blue_edge_clearance;
+  return `<div class="chips">
+    <span class="chip"><strong>range</strong> ${{f.distance.toFixed(2)}}m</span>
+    <span class="chip"><strong>red edge</strong> ${{redEdge.toFixed(2)}}m</span>
+    <span class="chip"><strong>blue edge</strong> ${{blueEdge.toFixed(2)}}m</span>
+    <span class="chip"><strong>red dmg</strong> ${{f.red_max_damage.toFixed(2)}}</span>
+    <span class="chip"><strong>blue dmg</strong> ${{f.blue_max_damage.toFixed(2)}}</span>
+    <span class="chip"><strong>reward</strong> ${{f.reward_red.toFixed(3)}}</span>
+  </div>`;
 }}
 document.getElementById('domain').textContent = replay.domain_profile ? JSON.stringify(replay.domain_profile, null, 2) : 'disabled';
 draw(0);

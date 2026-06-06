@@ -182,6 +182,9 @@ def test_tiny_robustness_and_replay_outputs(tmp_path: Path):
     html = Path(replay["viewer"]).read_text(encoding="utf-8")
     assert "Reward Trace" in html
     assert "GhostFighter Replay" in html
+    assert "Tactical Telemetry" in html
+    assert "snapshot" in html
+    assert "red_edge_clearance" in Path(replay["replay"]).read_text(encoding="utf-8")
     assert "play" in html.lower()
 
 
