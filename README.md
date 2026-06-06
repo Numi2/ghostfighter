@@ -120,3 +120,7 @@ It tracks ring position, heading, stamina, guard, balance, health, knockdowns, a
 ## Scale Path
 
 The local backend is for iteration, CI, and review. The interfaces are shaped so the same policy roles, domain-randomization profiles, PPO loop, and failure/replay artifacts can move to Isaac Lab for massive vectorized rollout generation and MuJoCo for higher-fidelity validation.
+
+## Replay Viewer Preview
+
+![GhostFighter HTML replay viewer](assets/replay_viewer_preview.gif)
