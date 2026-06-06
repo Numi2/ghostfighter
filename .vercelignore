@@ -1,0 +1,6 @@
+*
+!vercel.json
+!web/
+!web/**
+web/node_modules/
+web/dist/
