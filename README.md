@@ -87,7 +87,7 @@ python -m ghostfighter.cli replay-viewer \
 
 **Replay evidence:** The HTML viewer is a standalone fight analysis console. It shows the arena, actions, reward trace, event markers, health, balance, stamina, damage, range, edge clearance, domain profile, keyboard playback, and PNG snapshot export.
 
-**Browser game:** The Vite web app turns GhostFighter into a playable arena. It supports same-keyboard local PvP, human-vs-bot, bot-vs-bot league mode, in-browser policy training, and bot DNA import/export so users can share trained ghosts as challenge strings.
+**Browser game:** The Vite web app turns GhostFighter into a playable arena. It supports same-keyboard local PvP, human-vs-bot, bot-vs-bot league mode, in-browser policy training, bot DNA import/export, and shareable challenge URLs so players can fight trained ghosts from other users.
 
 ## Artifacts To Inspect
 

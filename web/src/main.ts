@@ -105,6 +105,7 @@ app.innerHTML = `
         <div class="trainGrid">
           <button id="train">Train 30 sims</button>
           <button id="exportBot">Export DNA</button>
+          <button id="shareBot">Copy Challenge URL</button>
         </div>
         <textarea id="botCode" spellcheck="false" aria-label="Bot DNA import and export"></textarea>
         <button id="importBot">Import Blue Bot</button>
@@ -125,6 +126,7 @@ const resetButton = document.querySelector<HTMLButtonElement>("#reset")!;
 const modeSelect = document.querySelector<HTMLSelectElement>("#mode")!;
 const trainButton = document.querySelector<HTMLButtonElement>("#train")!;
 const exportButton = document.querySelector<HTMLButtonElement>("#exportBot")!;
+const shareButton = document.querySelector<HTMLButtonElement>("#shareBot")!;
 const importButton = document.querySelector<HTMLButtonElement>("#importBot")!;
 const botCode = document.querySelector<HTMLTextAreaElement>("#botCode")!;
 const arenaRadius = 3.85;
@@ -451,6 +453,24 @@ function decodeBot(code: string): BotGenome | null {
   }
 }
 
+function challengeUrl(bot: BotGenome) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("bot", encodeBot(bot));
+  return url.toString();
+}
+
+function importFromUrl() {
+  const code = new URL(window.location.href).searchParams.get("bot");
+  if (!code) return;
+  const imported = decodeBot(code);
+  if (!imported) return;
+  blueBot = imported;
+  champion = imported;
+  botCode.value = code;
+  modeSelect.value = "humanBot";
+  events.unshift({ text: `Loaded worldwide challenge: ${imported.name}`, ttl: 6, kind: "train" });
+}
+
 function world(x: number, y: number) {
   const size = Math.min(canvas.width * 0.62, canvas.height * 0.78);
   return [canvas.width * 0.49 + (x / arenaRadius) * size * 0.5, canvas.height * 0.52 + (y / arenaRadius) * size * 0.5] as const;
@@ -637,8 +657,23 @@ exportButton.addEventListener("click", async () => {
   await navigator.clipboard?.writeText(code).catch(() => undefined);
   events.unshift({ text: "Champion DNA exported. Share it as a global bot challenge.", ttl: 5, kind: "train" });
 });
+shareButton.addEventListener("click", async () => {
+  const url = challengeUrl(champion);
+  botCode.value = url;
+  await navigator.clipboard?.writeText(url).catch(() => undefined);
+  events.unshift({ text: "Challenge URL copied. Anyone can fight this trained ghost.", ttl: 5, kind: "train" });
+});
 importButton.addEventListener("click", () => {
-  const imported = decodeBot(botCode.value);
+  const raw = botCode.value.trim();
+  let code = raw;
+  if (raw.includes("bot=")) {
+    try {
+      code = new URL(raw).searchParams.get("bot") || "";
+    } catch {
+      code = "";
+    }
+  }
+  const imported = decodeBot(code);
   if (!imported) {
     events.unshift({ text: "Import failed: invalid bot DNA.", ttl: 4, kind: "safety" });
     return;
@@ -651,5 +686,6 @@ importButton.addEventListener("click", () => {
 });
 
 botCode.value = encodeBot(champion);
+importFromUrl();
 draw();
 requestAnimationFrame(step);
