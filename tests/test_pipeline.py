@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import numpy as np
+
 from ghostfighter.dataset import generate_trace_dataset
 from ghostfighter.attributes import AttributePolicy, load_policy_spec, sample_attribute_policies
 from ghostfighter.train import train_behavior_cloning
@@ -9,7 +11,7 @@ from ghostfighter.evaluate import evaluate_policy, run_safety_threshold_sweep, r
 from ghostfighter.improve import run_scale_study
 from ghostfighter.render import make_safety_dashboard
 from ghostfighter.selfplay import run_population_self_play
-from ghostfighter.rl import PPOConfig, train_ppo_self_play
+from ghostfighter.rl import PPOConfig, _gae, _gae_by_episode, train_ppo_self_play
 from ghostfighter.robustness import run_robustness_ablations
 from ghostfighter.replay import make_replay_viewer
 from ghostfighter.vector_env import SyncVectorFightEnv
@@ -96,6 +98,21 @@ def test_sync_vector_env_steps_batch():
     step = env.step([0, 1, 2], [0, 1, 2])
     assert step.obs_red.shape[0] == 3
     assert step.reward_red.shape == (3,)
+
+
+def test_gae_respects_interleaved_episode_boundaries():
+    cfg = PPOConfig(gamma=0.9, gae_lambda=0.8)
+    rewards = np.array([1.0, 10.0, 1.0, 10.0], dtype="float32")
+    values = np.zeros(4, dtype="float32")
+    dones = np.array([False, False, True, True])
+    episode_ids = np.array([0, 1, 0, 1])
+    adv, returns = _gae_by_episode(rewards, values, dones, episode_ids, cfg)
+    adv0, ret0 = _gae(rewards[[0, 2]], values[[0, 2]], dones[[0, 2]], cfg)
+    adv1, ret1 = _gae(rewards[[1, 3]], values[[1, 3]], dones[[1, 3]], cfg)
+    assert adv[[0, 2]].tolist() == adv0.tolist()
+    assert adv[[1, 3]].tolist() == adv1.tolist()
+    assert returns[[0, 2]].tolist() == ret0.tolist()
+    assert returns[[1, 3]].tolist() == ret1.tolist()
 
 
 def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):

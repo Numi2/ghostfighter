@@ -178,7 +178,7 @@ def train_ppo_self_play(
 def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, rng, verbose: bool = False) -> dict[str, object]:
     if config.envs > 1:
         return _collect_ppo_rollout_vectorized(model, historical, role_population, config, rng)
-    obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf = [], [], [], [], [], []
+    obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf, episode_id_buf = [], [], [], [], [], [], []
     episode_returns, episode_lengths = [], []
     term_values = {name: [] for name in REWARD_TERM_NAMES}
     for episode in range(config.matches_per_update):
@@ -211,6 +211,7 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
             logp_buf.append(logp)
             value_buf.append(value)
             reward_buf.append(float(reward))
+            episode_id_buf.append(episode)
             for name in REWARD_TERM_NAMES:
                 term_values[name].append(float(terms[name]))
             done_buf.append(bool(done))
@@ -219,7 +220,13 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
             obs_red, obs_blue = next_red, next_blue
         episode_returns.append(total)
         episode_lengths.append(length)
-    advantages, returns = _gae(np.asarray(reward_buf, dtype=np.float32), np.asarray(value_buf, dtype=np.float32), np.asarray(done_buf, dtype=bool), config)
+    advantages, returns = _gae_by_episode(
+        np.asarray(reward_buf, dtype=np.float32),
+        np.asarray(value_buf, dtype=np.float32),
+        np.asarray(done_buf, dtype=bool),
+        np.asarray(episode_id_buf, dtype=np.int64),
+        config,
+    )
     term_sums = {name: float(np.sum(values)) for name, values in term_values.items()}
     term_means = {name: float(np.mean(values)) if values else 0.0 for name, values in term_values.items()}
     return {
@@ -229,6 +236,7 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
         "values": np.asarray(value_buf, dtype=np.float32),
         "advantages": advantages,
         "returns": returns,
+        "episode_ids": np.asarray(episode_id_buf, dtype=np.int64),
         "episode_returns": episode_returns,
         "episode_lengths": episode_lengths,
         "episodes": config.matches_per_update,
@@ -238,11 +246,11 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
 
 
 def _collect_ppo_rollout_vectorized(model, historical, role_population, config: PPOConfig, rng) -> dict[str, object]:
-    obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf = [], [], [], [], [], []
+    obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf, episode_id_buf = [], [], [], [], [], [], []
     episode_returns, episode_lengths = [], []
     term_values = {name: [] for name in REWARD_TERM_NAMES}
     envs = []
-    obs_reds, obs_blues, profiles, opponents, totals, lengths = [], [], [], [], [], []
+    obs_reds, obs_blues, profiles, opponents, totals, lengths, episode_ids = [], [], [], [], [], [], []
     for idx in range(config.envs):
         seed = int(rng.integers(1, 10_000_000))
         env = FightEnv(config=SimConfig(max_steps=config.max_steps, seed=seed), seed=seed)
@@ -260,8 +268,10 @@ def _collect_ppo_rollout_vectorized(model, historical, role_population, config: 
         opponents.append(_sample_opponent_policy(historical, role_population, rng))
         totals.append(0.0)
         lengths.append(0)
+        episode_ids.append(idx)
 
     completed = 0
+    next_episode_id = config.envs
     while completed < config.matches_per_update:
         active = [i for i, env in enumerate(envs) if not env.done]
         if not active:
@@ -294,6 +304,7 @@ def _collect_ppo_rollout_vectorized(model, historical, role_population, config: 
             logp_buf.append(logp)
             value_buf.append(value)
             reward_buf.append(reward)
+            episode_id_buf.append(episode_ids[env_idx])
             for name in REWARD_TERM_NAMES:
                 term_values[name].append(float(terms[name]))
             done_buf.append(bool(done))
@@ -319,7 +330,15 @@ def _collect_ppo_rollout_vectorized(model, historical, role_population, config: 
                     opponents[env_idx] = _sample_opponent_policy(historical, role_population, rng)
                     totals[env_idx] = 0.0
                     lengths[env_idx] = 0
-    advantages, returns = _gae(np.asarray(reward_buf, dtype=np.float32), np.asarray(value_buf, dtype=np.float32), np.asarray(done_buf, dtype=bool), config)
+                    episode_ids[env_idx] = next_episode_id
+                    next_episode_id += 1
+    advantages, returns = _gae_by_episode(
+        np.asarray(reward_buf, dtype=np.float32),
+        np.asarray(value_buf, dtype=np.float32),
+        np.asarray(done_buf, dtype=bool),
+        np.asarray(episode_id_buf, dtype=np.int64),
+        config,
+    )
     term_sums = {name: float(np.sum(values)) for name, values in term_values.items()}
     term_means = {name: float(np.mean(values)) if values else 0.0 for name, values in term_values.items()}
     return {
@@ -329,6 +348,7 @@ def _collect_ppo_rollout_vectorized(model, historical, role_population, config: 
         "values": np.asarray(value_buf, dtype=np.float32),
         "advantages": advantages,
         "returns": returns,
+        "episode_ids": np.asarray(episode_id_buf, dtype=np.int64),
         "episode_returns": episode_returns,
         "episode_lengths": episode_lengths,
         "episodes": completed,
@@ -392,6 +412,25 @@ def _gae(rewards: np.ndarray, values: np.ndarray, dones: np.ndarray, config: PPO
         next_value = values[t]
     returns = adv + values
     return adv.astype(np.float32), returns.astype(np.float32)
+
+
+def _gae_by_episode(
+    rewards: np.ndarray,
+    values: np.ndarray,
+    dones: np.ndarray,
+    episode_ids: np.ndarray,
+    config: PPOConfig,
+) -> tuple[np.ndarray, np.ndarray]:
+    advantages = np.zeros_like(rewards, dtype=np.float32)
+    returns = np.zeros_like(rewards, dtype=np.float32)
+    for episode_id in np.unique(episode_ids):
+        idx = np.flatnonzero(episode_ids == episode_id)
+        if idx.size == 0:
+            continue
+        ep_adv, ep_returns = _gae(rewards[idx], values[idx], dones[idx], config)
+        advantages[idx] = ep_adv
+        returns[idx] = ep_returns
+    return advantages, returns
 
 
 def _sample_opponent_policy(historical, role_population, rng):
