@@ -20,6 +20,7 @@ The goal is to make simulated fights become a robot-learning data flywheel: conf
 - Domain randomization for mass, inertia, friction, floor compliance, latency, motor strength, actuator delay, damping, sensor noise, restitution, battery sag, thermal limits, terrain, and external pushes.
 - Population-based self-play across `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist` roles with Elo-style ratings, exploitability, policy diversity, and failure-mode reports.
 - PPO actor-critic self-play trainer with historical opponent snapshots and league leaderboard artifacts.
+- Empirical payoff-matrix league analysis with replicator-dynamics meta-strategy, best response, and exploitability estimates.
 - Robustness ablation runner for PPO policies under nominal, domain-randomized, actuator-degraded, boundary-pressure, and recovery-stress conditions.
 - Offline replay viewer that writes a serialized fight plus standalone HTML canvas/timeline inspector.
 - Synchronous local vector environment API as the lightweight bridge toward Isaac Lab-style batched rollout collection.
@@ -71,6 +72,10 @@ runs/default/
   rl/ppo_summary.json
   rl/leaderboard.csv
   rl/LEADERBOARD.md
+  rl/payoff_matrix.csv
+  rl/meta_strategy.csv
+  rl/league_analysis.json
+  rl/LEAGUE_ANALYSIS.md
   rl/RL_TRAINING_CARD.md
   robustness/robustness_results.csv
   robustness/robustness_summary.json
@@ -257,7 +262,7 @@ GhostFighter demonstrates that operating model end to end.
 - The scaling ladder trains multiple generations with growing trace budgets and reports whether imitation accuracy, stress behavior, and the combined research score improve as data increases.
 - Generation Zero data is created from user-specified policy attributes, so the starting corpus is configurable and randomized rather than hardcoded to one set of scripts.
 - Population self-play reports Elo-style ratings, exploitability gaps, Jensen-Shannon policy diversity, and failure modes across adversarial roles.
-- PPO self-play produces policy checkpoints, training curves, historical-opponent league matches, and a leaderboard.
+- PPO self-play produces policy checkpoints, training curves with KL/clip/explained-variance diagnostics, historical-opponent league matches, payoff matrices, meta-strategy estimates, exploitability analysis, and a leaderboard.
 - Robustness ablations compare nominal, randomized, actuator-degraded, boundary-pressure, and recovery-stress outcomes for PPO policies.
 - The replay viewer makes trained-policy behavior inspectable step by step without rerunning the simulator.
 - Domain-randomized rollouts exercise standard sim-to-real variables and write a dedicated card describing the sampled ranges.

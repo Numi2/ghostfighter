@@ -16,7 +16,7 @@ from .attributes import AttributePolicy
 from .config import ACTION_NAMES, STYLE_NAMES
 from .domain import apply_domain_randomization, apply_external_push, apply_observation_noise, sample_domain_randomization
 from .env import FightEnv, SimConfig
-from .selfplay import SELFPLAY_ROLES, _make_population, _update_elo
+from .selfplay import _make_population, _update_elo
 from .train import set_seeds
 
 
@@ -119,6 +119,9 @@ def train_ppo_self_play(
             "policy_loss": float(rollout.get("policy_loss", 0.0)),
             "value_loss": float(rollout.get("value_loss", 0.0)),
             "entropy": float(rollout.get("entropy", 0.0)),
+            "approx_kl": float(rollout.get("approx_kl", 0.0)),
+            "clip_fraction": float(rollout.get("clip_fraction", 0.0)),
+            "explained_variance": float(rollout.get("explained_variance", 0.0)),
             "elo": float(score["elo"]),
             "eval_win_rate": float(score["win_rate"]),
             "eval_fall_rate": float(score["fall_rate"]),
@@ -206,6 +209,7 @@ def _ppo_update(model, optimizer, rollout: dict[str, object], config: PPOConfig)
     advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
     n = int(actions.shape[0])
     policy_losses, value_losses, entropies = [], [], []
+    approx_kls, clip_fractions = [], []
     for _epoch in range(config.epochs):
         idx = torch.randperm(n)
         for start in range(0, n, config.batch_size):
@@ -227,9 +231,16 @@ def _ppo_update(model, optimizer, rollout: dict[str, object], config: PPOConfig)
             policy_losses.append(float(policy_loss.item()))
             value_losses.append(float(value_loss.item()))
             entropies.append(float(entropy.item()))
+            with torch.no_grad():
+                log_ratio = logp - old_logp[batch]
+                approx_kls.append(float(((torch.exp(log_ratio) - 1.0) - log_ratio).mean().item()))
+                clip_fractions.append(float((torch.abs(ratio - 1.0) > config.clip).float().mean().item()))
     rollout["policy_loss"] = float(np.mean(policy_losses)) if policy_losses else 0.0
     rollout["value_loss"] = float(np.mean(value_losses)) if value_losses else 0.0
     rollout["entropy"] = float(np.mean(entropies)) if entropies else 0.0
+    rollout["approx_kl"] = float(np.mean(approx_kls)) if approx_kls else 0.0
+    rollout["clip_fraction"] = float(np.mean(clip_fractions)) if clip_fractions else 0.0
+    rollout["explained_variance"] = _explained_variance(rollout["values"], rollout["returns"])
 
 
 def _gae(rewards: np.ndarray, values: np.ndarray, dones: np.ndarray, config: PPOConfig) -> tuple[np.ndarray, np.ndarray]:
@@ -289,6 +300,7 @@ def run_policy_leaderboard(model, historical, role_population, out_dir: str | Pa
         agents.append((attrs.policy_id, AttributePolicy(attrs, lookahead=False)))
     elo = {name: 1000.0 for name, _ in agents}
     rows = []
+    payoff = {(red_name, blue_name): [] for red_name, _ in agents for blue_name, _ in agents if red_name != blue_name}
     for i, (red_name, red_policy) in enumerate(agents):
         for j, (blue_name, blue_policy) in enumerate(agents):
             if i == j:
@@ -299,6 +311,7 @@ def run_policy_leaderboard(model, historical, role_population, out_dir: str | Pa
             while not done:
                 obs_red, obs_blue, _rr, _rb, done, _info = env.step(red_policy.select_action(obs_red, env, 0), blue_policy.select_action(obs_blue, env, 1))
             score = 0.5 if env.winner() == -1 else (1.0 if env.winner() == 0 else 0.0)
+            payoff[(red_name, blue_name)].append(float(score))
             elo[red_name], elo[blue_name] = _update_elo(elo[red_name], elo[blue_name], score)
             rows.append({"red": red_name, "blue": blue_name, "winner": env.winner(), "red_falls": env.red.falls, "blue_falls": env.blue.falls})
     board = []
@@ -310,8 +323,24 @@ def run_policy_leaderboard(model, historical, role_population, out_dir: str | Pa
         board.append({"agent": name, "elo": float(value), "played": len(played), "score_rate": float(score / max(1, len(played))), "falls": int(falls)})
     pd.DataFrame(rows).to_csv(out_dir / "league_matches.csv", index=False)
     pd.DataFrame(board).to_csv(out_dir / "leaderboard.csv", index=False)
+    matrix, matrix_df = _payoff_matrix([name for name, _ in agents], payoff)
+    matrix_df.to_csv(out_dir / "payoff_matrix.csv")
+    meta = _replicator_meta_strategy(matrix)
+    meta_rows = [{"agent": name, "meta_probability": float(prob)} for name, prob in zip(matrix_df.index, meta)]
+    pd.DataFrame(meta_rows).to_csv(out_dir / "meta_strategy.csv", index=False)
+    league_analysis = _league_analysis(matrix, meta, matrix_df.index.tolist())
+    (out_dir / "league_analysis.json").write_text(json.dumps(league_analysis, indent=2), encoding="utf-8")
     _write_leaderboard_md(out_dir / "LEADERBOARD.md", board)
-    summary = {"agents": len(agents), "matches": len(rows), "top_agent": board[0]["agent"] if board else "", "top_elo": board[0]["elo"] if board else 0.0}
+    _write_league_analysis_md(out_dir / "LEAGUE_ANALYSIS.md", league_analysis, meta_rows)
+    summary = {
+        "agents": len(agents),
+        "matches": len(rows),
+        "top_agent": board[0]["agent"] if board else "",
+        "top_elo": board[0]["elo"] if board else 0.0,
+        "meta_exploitability": league_analysis["meta_exploitability"],
+        "meta_entropy": league_analysis["meta_entropy"],
+        "best_response_agent": league_analysis["best_response_agent"],
+    }
     (out_dir / "leaderboard_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return {"summary": summary, "rows": rows, "leaderboard": board}
 
@@ -340,6 +369,79 @@ def _save_actor_checkpoint(path: Path, model: ActorCriticPolicy, config: PPOConf
         },
         path,
     )
+
+
+def _explained_variance(values, returns) -> float:
+    values = np.asarray(values, dtype=np.float64)
+    returns = np.asarray(returns, dtype=np.float64)
+    if returns.size == 0:
+        return 0.0
+    var_y = float(np.var(returns))
+    if var_y < 1e-12:
+        return 0.0
+    return float(1.0 - np.var(returns - values) / var_y)
+
+
+def _payoff_matrix(agent_names: list[str], payoff: dict[tuple[str, str], list[float]]) -> tuple[np.ndarray, pd.DataFrame]:
+    n = len(agent_names)
+    matrix = np.full((n, n), 0.5, dtype=np.float64)
+    for i, red in enumerate(agent_names):
+        for j, blue in enumerate(agent_names):
+            if i == j:
+                continue
+            scores = payoff.get((red, blue), [])
+            matrix[i, j] = float(np.mean(scores)) if scores else 0.5
+    return matrix, pd.DataFrame(matrix, index=agent_names, columns=agent_names)
+
+
+def _replicator_meta_strategy(payoff_matrix: np.ndarray, iterations: int = 700, lr: float = 0.08) -> np.ndarray:
+    n = payoff_matrix.shape[0]
+    strategy = np.ones(n, dtype=np.float64) / max(1, n)
+    centered = payoff_matrix - 0.5
+    for _ in range(iterations):
+        fitness = centered @ strategy
+        avg = float(strategy @ fitness)
+        strategy *= np.exp(lr * (fitness - avg))
+        strategy /= max(strategy.sum(), 1e-12)
+    return strategy
+
+
+def _league_analysis(payoff_matrix: np.ndarray, meta: np.ndarray, names: list[str]) -> dict[str, object]:
+    values = payoff_matrix @ meta
+    population_value = float(meta @ values)
+    best_idx = int(np.argmax(values))
+    entropy = float(-(meta[meta > 0] * np.log2(meta[meta > 0])).sum())
+    return {
+        "population_value": population_value,
+        "best_response_agent": names[best_idx],
+        "best_response_value": float(values[best_idx]),
+        "meta_exploitability": float(values[best_idx] - population_value),
+        "meta_entropy": entropy,
+        "meta_strategy": {name: float(prob) for name, prob in zip(names, meta)},
+        "agent_values_vs_meta": {name: float(value) for name, value in zip(names, values)},
+    }
+
+
+def _write_league_analysis_md(path: Path, analysis: dict[str, object], meta_rows: list[dict[str, object]]) -> None:
+    lines = [
+        "# League Analysis",
+        "",
+        "This report adds a payoff-matrix view on top of Elo. The meta-strategy is estimated with replicator dynamics over empirical head-to-head scores; exploitability is the best-response advantage over that population.",
+        "",
+        f"- Population value: {analysis['population_value']:.3f}",
+        f"- Best response: `{analysis['best_response_agent']}` ({analysis['best_response_value']:.3f})",
+        f"- Meta exploitability: {analysis['meta_exploitability']:.3f}",
+        f"- Meta entropy: {analysis['meta_entropy']:.3f}",
+        "",
+        "| Agent | Meta Probability | Value vs Meta |",
+        "|---|---:|---:|",
+    ]
+    values = analysis["agent_values_vs_meta"]
+    for row in sorted(meta_rows, key=lambda item: item["meta_probability"], reverse=True):
+        agent = row["agent"]
+        lines.append(f"| `{agent}` | {row['meta_probability']:.3f} | {values[agent]:.3f} |")
+    lines.extend(["", "```json", json.dumps(analysis, indent=2), "```"])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def load_actor_checkpoint(path: str | Path, map_location: str = "cpu") -> tuple[ActorCriticPolicy, dict[str, object]]:

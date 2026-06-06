@@ -101,7 +101,7 @@ def _fighter(f) -> dict[str, object]:
 
 
 def _html(replay: dict[str, object]) -> str:
-    payload = json.dumps(replay)
+    payload = json.dumps(replay).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang="en">
 <head>

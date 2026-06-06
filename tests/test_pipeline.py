@@ -13,7 +13,7 @@ from ghostfighter.rl import PPOConfig, train_ppo_self_play
 from ghostfighter.robustness import run_robustness_ablations
 from ghostfighter.replay import make_replay_viewer
 from ghostfighter.vector_env import SyncVectorFightEnv
-from ghostfighter.cli import build_parser
+from ghostfighter.cli import build_parser, main
 
 
 def test_small_pipeline_runs(tmp_path: Path):
@@ -117,7 +117,13 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
     assert (tmp_path / "rl" / "ppo_training_curve.csv").exists()
     assert (tmp_path / "rl" / "leaderboard.csv").exists()
     assert (tmp_path / "rl" / "LEADERBOARD.md").exists()
+    assert (tmp_path / "rl" / "payoff_matrix.csv").exists()
+    assert (tmp_path / "rl" / "meta_strategy.csv").exists()
+    assert (tmp_path / "rl" / "LEAGUE_ANALYSIS.md").exists()
     assert (tmp_path / "rl" / "RL_TRAINING_CARD.md").exists()
+    assert "meta_exploitability" in result["summary"]["leaderboard"]
+    assert "approx_kl" in result["curve"][0]
+    assert "explained_variance" in result["curve"][0]
 
 
 def test_tiny_robustness_and_replay_outputs(tmp_path: Path):
@@ -227,3 +233,12 @@ def test_cli_accepts_benchmark_options():
     assert args.replay_viewer is True
     args = parser.parse_args(["all", "--gen0-source", "attributes", "--variants-per-archetype", "2"])
     assert args.gen0_source == "attributes"
+
+
+def test_all_rejects_robustness_without_rl(tmp_path: Path):
+    try:
+        main(["all", "--out", str(tmp_path / "bad"), "--robustness"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("all --robustness should require --rl")

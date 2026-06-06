@@ -24,6 +24,24 @@ def positive_int_list(value: str) -> list[int]:
     return values
 
 
+def _optional_all_steps(args) -> list[str]:
+    steps = ["data", "train", "evaluate", "scripted_baseline"]
+    if args.benchmark:
+        steps.append("benchmark")
+    if args.self_play:
+        steps.append("self_play")
+    if args.rl:
+        steps.append("rl")
+    if args.robustness:
+        steps.append("robustness")
+    if args.replay_viewer:
+        steps.append("replay_viewer")
+    if args.scale_study:
+        steps.append("scale_study")
+    steps.extend(["render", "model_card", "run_card"])
+    return steps
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ghostfighter",
@@ -342,12 +360,22 @@ def main(argv: list[str] | None = None) -> int:
         from .render import make_dashboard, make_demo_gif, make_safety_dashboard, write_model_card, write_run_card
         from .train import train_behavior_cloning
 
+        if (args.robustness or args.replay_viewer) and not args.rl:
+            parser.error("--robustness and --replay-viewer require --rl in the all command")
         run_dir = Path(args.out)
+        all_steps = _optional_all_steps(args)
+        step_idx = 1
+
+        def announce(label: str) -> None:
+            nonlocal step_idx
+            print(f"[{step_idx}/{len(all_steps)}] {label}", flush=True)
+            step_idx += 1
+
         data_path = run_dir / "data" / "traces.npz"
         model_dir = run_dir / "models"
         report_dir = run_dir / "reports"
         video_path = run_dir / "videos" / "ghostfighter_demo.gif"
-        print(f"[1/6] generating Generation Zero traces ({args.gen0_source})", flush=True)
+        announce(f"generating Generation Zero traces ({args.gen0_source})")
         data_summary = generate_trace_dataset(
             data_path,
             args.episodes_per_style,
@@ -360,19 +388,18 @@ def main(argv: list[str] | None = None) -> int:
             domain_intensity=args.domain_intensity,
         )
         print(json.dumps(data_summary, indent=2), flush=True)
-        print("[2/6] training ghost policy", flush=True)
+        announce("training ghost policy")
         train_result = train_behavior_cloning(data_path, model_dir, config=TrainConfig(epochs=args.epochs, batch_size=args.batch_size, seed=args.seed + 1), verbose=True)
         print(json.dumps({"model_path": train_result["model_path"], "metrics": train_result["metrics"]}, indent=2), flush=True)
-        print("[3/6] evaluating raw vs firewall", flush=True)
+        announce("evaluating raw vs firewall")
         eval_result = evaluate_policy(train_result["model_path"], report_dir, episodes=args.eval_episodes, seed=args.seed + 2, max_steps=args.max_steps, verbose=True, include_stress=args.stress)
         print(json.dumps(eval_result["summary"], indent=2), flush=True)
-        print("[4/6] evaluating scripted baseline", flush=True)
+        announce("evaluating scripted baseline")
         evaluate_scripted_baseline(report_dir, episodes=max(40, args.eval_episodes // 2), seed=args.seed + 3, verbose=True)
         if args.benchmark:
             from .evaluate import run_scenario_suite
 
-            total_steps = 11 if args.scale_study or args.self_play or args.rl else 8
-            print(f"[5/{total_steps}] running scenario benchmark", flush=True)
+            announce("running scenario benchmark")
             benchmark_result = run_scenario_suite(
                 train_result["model_path"],
                 report_dir,
@@ -383,211 +410,101 @@ def main(argv: list[str] | None = None) -> int:
                 verbose=True,
             )
             print(json.dumps(benchmark_result["summary"], indent=2), flush=True)
-            if args.self_play:
-                from .selfplay import run_population_self_play
+        if args.self_play:
+            from .selfplay import run_population_self_play
 
-                print(f"[6/{total_steps}] running population self-play", flush=True)
-                selfplay_result = run_population_self_play(
-                    run_dir / "selfplay",
-                    generations=3,
-                    matches_per_pair=2,
-                    seed=args.seed + 7,
-                    max_steps=max(60, args.max_steps // 2),
-                    variants_per_role=2,
-                    domain_randomization=True,
-                    domain_intensity=0.55,
-                    verbose=True,
-                )
-                print(json.dumps(selfplay_result["summary"], indent=2), flush=True)
-                next_step = 7
-            else:
-                selfplay_result = None
-                next_step = 6
-            if args.rl:
-                from .rl import PPOConfig, train_ppo_self_play
-
-                print(f"[{next_step}/{total_steps}] running PPO self-play training", flush=True)
-                rl_result = train_ppo_self_play(
-                    run_dir / "rl",
-                    config=PPOConfig(
-                        updates=3,
-                        matches_per_update=6,
-                        max_steps=max(50, args.max_steps // 2),
-                        epochs=max(2, args.epochs // 3),
-                        batch_size=min(args.batch_size, 1024),
-                        hidden=128,
-                        seed=args.seed + 8,
-                        domain_randomization=True,
-                        domain_intensity=0.45,
-                    ),
-                    verbose=True,
-                )
-                print(json.dumps(rl_result["summary"], indent=2), flush=True)
-                next_step += 1
-                if args.robustness:
-                    from .robustness import run_robustness_ablations
-
-                    print(f"[{next_step}/{total_steps}] running robustness ablations", flush=True)
-                    robustness_result = run_robustness_ablations(
-                        rl_result["model_path"],
-                        run_dir / "robustness",
-                        episodes=max(4, args.eval_episodes // 20),
-                        seed=args.seed + 10,
-                        max_steps=max(50, args.max_steps // 2),
-                    )
-                    print(json.dumps(robustness_result["summary"], indent=2), flush=True)
-                    next_step += 1
-                if args.replay_viewer:
-                    from .replay import make_replay_viewer
-
-                    print(f"[{next_step}/{total_steps}] writing replay viewer", flush=True)
-                    replay_result = make_replay_viewer(
-                        rl_result["model_path"],
-                        run_dir / "replay",
-                        seed=args.seed + 11,
-                        max_steps=min(120, args.max_steps),
-                        domain_randomization=True,
-                    )
-                    print(json.dumps(replay_result, indent=2), flush=True)
-                    next_step += 1
-            else:
-                rl_result = None
-            if args.scale_study:
-                from .improve import run_scale_study
-
-                print(f"[{next_step}/{total_steps}] running self-improvement scale study", flush=True)
-                scale_result = run_scale_study(
-                    run_dir / "scaling",
-                    episode_schedule=[
-                        max(2, args.episodes_per_style // 10),
-                        max(4, args.episodes_per_style // 5),
-                        max(8, args.episodes_per_style // 2),
-                    ],
-                    epochs=max(2, args.epochs // 2),
-                    eval_episodes=max(16, args.eval_episodes // 4),
-                    seed=args.seed + 6,
-                    max_steps=max(60, args.max_steps // 2),
-                    batch_size=args.batch_size,
-                    hidden=128,
-                    verbose=True,
-                )
-                print(json.dumps(scale_result["summary"], indent=2), flush=True)
-                print(f"[{next_step + 1}/{total_steps}] rendering dashboards and demo", flush=True)
-            else:
-                scale_result = None
-                print(f"[{next_step}/{total_steps}] rendering dashboards and demo", flush=True)
+            announce("running population self-play")
+            selfplay_result = run_population_self_play(
+                run_dir / "selfplay",
+                generations=3,
+                matches_per_pair=2,
+                seed=args.seed + 7,
+                max_steps=max(60, args.max_steps // 2),
+                variants_per_role=2,
+                domain_randomization=True,
+                domain_intensity=0.55,
+                verbose=True,
+            )
+            print(json.dumps(selfplay_result["summary"], indent=2), flush=True)
         else:
-            if args.self_play:
-                from .selfplay import run_population_self_play
+            selfplay_result = None
+        if args.rl:
+            from .rl import PPOConfig, train_ppo_self_play
 
-                print("[5/8] running population self-play", flush=True)
-                selfplay_result = run_population_self_play(
-                    run_dir / "selfplay",
-                    generations=3,
-                    matches_per_pair=2,
-                    seed=args.seed + 7,
-                    max_steps=max(60, args.max_steps // 2),
-                    variants_per_role=2,
-                    domain_randomization=True,
-                    domain_intensity=0.55,
-                    verbose=True,
-                )
-                print(json.dumps(selfplay_result["summary"], indent=2), flush=True)
-                after_selfplay_step = 6
-            else:
-                selfplay_result = None
-                after_selfplay_step = 5
-            if args.rl:
-                from .rl import PPOConfig, train_ppo_self_play
-
-                print(f"[{after_selfplay_step}/9] running PPO self-play training", flush=True)
-                rl_result = train_ppo_self_play(
-                    run_dir / "rl",
-                    config=PPOConfig(
-                        updates=3,
-                        matches_per_update=6,
-                        max_steps=max(50, args.max_steps // 2),
-                        epochs=max(2, args.epochs // 3),
-                        batch_size=min(args.batch_size, 1024),
-                        hidden=128,
-                        seed=args.seed + 8,
-                        domain_randomization=True,
-                        domain_intensity=0.45,
-                    ),
-                    verbose=True,
-                )
-                print(json.dumps(rl_result["summary"], indent=2), flush=True)
-                after_selfplay_step += 1
-                if args.robustness:
-                    from .robustness import run_robustness_ablations
-
-                    print(f"[{after_selfplay_step}/9] running robustness ablations", flush=True)
-                    robustness_result = run_robustness_ablations(
-                        rl_result["model_path"],
-                        run_dir / "robustness",
-                        episodes=max(4, args.eval_episodes // 20),
-                        seed=args.seed + 10,
-                        max_steps=max(50, args.max_steps // 2),
-                    )
-                    print(json.dumps(robustness_result["summary"], indent=2), flush=True)
-                    after_selfplay_step += 1
-                if args.replay_viewer:
-                    from .replay import make_replay_viewer
-
-                    print(f"[{after_selfplay_step}/9] writing replay viewer", flush=True)
-                    replay_result = make_replay_viewer(
-                        rl_result["model_path"],
-                        run_dir / "replay",
-                        seed=args.seed + 11,
-                        max_steps=min(120, args.max_steps),
-                        domain_randomization=True,
-                    )
-                    print(json.dumps(replay_result, indent=2), flush=True)
-                    after_selfplay_step += 1
-            else:
-                rl_result = None
-            if args.scale_study:
-                from .improve import run_scale_study
-
-                print(f"[{after_selfplay_step}/8] running self-improvement scale study", flush=True)
-                scale_result = run_scale_study(
-                    run_dir / "scaling",
-                    episode_schedule=[
-                        max(2, args.episodes_per_style // 10),
-                        max(4, args.episodes_per_style // 5),
-                        max(8, args.episodes_per_style // 2),
-                    ],
-                    epochs=max(2, args.epochs // 2),
-                    eval_episodes=max(16, args.eval_episodes // 4),
-                    seed=args.seed + 6,
-                    max_steps=max(60, args.max_steps // 2),
-                    batch_size=args.batch_size,
+            announce("running PPO self-play training")
+            rl_result = train_ppo_self_play(
+                run_dir / "rl",
+                config=PPOConfig(
+                    updates=3,
+                    matches_per_update=6,
+                    max_steps=max(50, args.max_steps // 2),
+                    epochs=max(2, args.epochs // 3),
+                    batch_size=min(args.batch_size, 1024),
                     hidden=128,
-                    verbose=True,
+                    seed=args.seed + 8,
+                    domain_randomization=True,
+                    domain_intensity=0.45,
+                ),
+                verbose=True,
+            )
+            print(json.dumps(rl_result["summary"], indent=2), flush=True)
+            if args.robustness:
+                from .robustness import run_robustness_ablations
+
+                announce("running robustness ablations")
+                robustness_result = run_robustness_ablations(
+                    rl_result["model_path"],
+                    run_dir / "robustness",
+                    episodes=max(4, args.eval_episodes // 20),
+                    seed=args.seed + 10,
+                    max_steps=max(50, args.max_steps // 2),
                 )
-                print(json.dumps(scale_result["summary"], indent=2), flush=True)
-                print(f"[{after_selfplay_step + 1}/8] rendering dashboard and demo", flush=True)
-            else:
-                scale_result = None
-                if args.self_play:
-                    print(f"[{after_selfplay_step}/8] rendering dashboard and demo", flush=True)
-                else:
-                    print("[5/6] rendering dashboard and demo", flush=True)
+                print(json.dumps(robustness_result["summary"], indent=2), flush=True)
+            if args.replay_viewer:
+                from .replay import make_replay_viewer
+
+                announce("writing replay viewer")
+                replay_result = make_replay_viewer(
+                    rl_result["model_path"],
+                    run_dir / "replay",
+                    seed=args.seed + 11,
+                    max_steps=min(120, args.max_steps),
+                    domain_randomization=True,
+                )
+                print(json.dumps(replay_result, indent=2), flush=True)
+        else:
+            rl_result = None
+        if args.scale_study:
+            from .improve import run_scale_study
+
+            announce("running self-improvement scale study")
+            scale_result = run_scale_study(
+                run_dir / "scaling",
+                episode_schedule=[
+                    max(2, args.episodes_per_style // 10),
+                    max(4, args.episodes_per_style // 5),
+                    max(8, args.episodes_per_style // 2),
+                ],
+                epochs=max(2, args.epochs // 2),
+                eval_episodes=max(16, args.eval_episodes // 4),
+                seed=args.seed + 6,
+                max_steps=max(60, args.max_steps // 2),
+                batch_size=args.batch_size,
+                hidden=128,
+                verbose=True,
+            )
+            print(json.dumps(scale_result["summary"], indent=2), flush=True)
+        else:
+            scale_result = None
+        announce("rendering dashboards and demo")
         dashboard_path = make_dashboard(report_dir)
         backend_plan_path = write_backend_scale_plan(run_dir / "backends")
         safety_dashboard_path = make_safety_dashboard(report_dir) if args.benchmark else None
         style_id = STYLE_NAMES.index(args.demo_style)
         gif_path = make_demo_gif(train_result["model_path"], video_path, style_id=style_id, seed=args.seed + 4, max_steps=min(120, args.max_steps))
-        if args.benchmark or args.scale_study or args.self_play:
-            total_steps = 10 if (args.benchmark and (args.scale_study or args.self_play)) else 8
-            if args.scale_study and not args.benchmark and not args.self_play:
-                total_steps = 8
-            print(f"[{total_steps - 1}/{total_steps}] writing model card", flush=True)
-            model_card_path = write_model_card(run_dir)
-            print(f"[{total_steps}/{total_steps}] writing run card", flush=True)
-        else:
-            model_card_path = None
-            print("[6/6] writing run card", flush=True)
+        announce("writing model card")
+        model_card_path = write_model_card(run_dir)
+        announce("writing run card")
         card_path = write_run_card(run_dir)
         print(
             json.dumps(
