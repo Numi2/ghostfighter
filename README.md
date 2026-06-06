@@ -35,6 +35,14 @@ Fast smoke test:
 make smoke
 ```
 
+Run the browser game locally:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
 Full review run:
 
 ```bash
@@ -78,6 +86,8 @@ python -m ghostfighter.cli replay-viewer \
 **Deployment incumbent:** Training does not automatically ship the latest PPO checkpoint. GhostFighter keeps a retained incumbent checkpoint selected by a conservative deployment score that accounts for Elo, win rate, and fall rate.
 
 **Replay evidence:** The HTML viewer is a standalone fight analysis console. It shows the arena, actions, reward trace, event markers, health, balance, stamina, damage, range, edge clearance, domain profile, keyboard playback, and PNG snapshot export.
+
+**Browser game:** The Vite web app turns GhostFighter into a playable arena. It supports same-keyboard local PvP, human-vs-bot, bot-vs-bot league mode, in-browser policy training, and bot DNA import/export so users can share trained ghosts as challenge strings.
 
 ## Artifacts To Inspect
 
