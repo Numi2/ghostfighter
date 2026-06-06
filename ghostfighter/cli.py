@@ -129,6 +129,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--domain-randomization", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--domain-intensity", type=float, default=0.45)
 
+    p = sub.add_parser("robustness", help="Run robustness ablations for a PPO actor policy.")
+    p.add_argument("--policy", default="runs/default/rl/ppo_policy.pt")
+    p.add_argument("--out", default="runs/default/robustness")
+    p.add_argument("--episodes", type=positive_int, default=12)
+    p.add_argument("--seed", type=int, default=2401)
+    p.add_argument("--max-steps", type=positive_int, default=80)
+
+    p = sub.add_parser("replay-viewer", help="Write an offline HTML replay viewer for a PPO actor policy.")
+    p.add_argument("--policy", default="runs/default/rl/ppo_policy.pt")
+    p.add_argument("--out", default="runs/default/replay")
+    p.add_argument("--seed", type=int, default=2601)
+    p.add_argument("--max-steps", type=positive_int, default=100)
+    p.add_argument("--domain-randomization", action=argparse.BooleanOptionalAction, default=True)
+
     p = sub.add_parser("scale-plan", help="Write the Isaac Lab/MuJoCo rollout-scale backend plan.")
     p.add_argument("--out", default="runs/default/backends")
 
@@ -151,6 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scale-study", action="store_true", help="Run a data-scaling self-improvement study.")
     p.add_argument("--self-play", action="store_true", help="Run population self-play and write Elo/diversity/failure-mode artifacts.")
     p.add_argument("--rl", action="store_true", help="Run PPO self-play training and league leaderboard artifacts.")
+    p.add_argument("--robustness", action="store_true", help="Run PPO robustness ablations after RL training.")
+    p.add_argument("--replay-viewer", action="store_true", help="Write an offline replay viewer after RL training.")
     return parser
 
 
@@ -300,6 +316,19 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result["summary"], indent=2))
         return 0
 
+    if args.command == "robustness":
+        from .robustness import run_robustness_ablations
+
+        result = run_robustness_ablations(args.policy, args.out, episodes=args.episodes, seed=args.seed, max_steps=args.max_steps)
+        print(json.dumps(result["summary"], indent=2))
+        return 0
+
+    if args.command == "replay-viewer":
+        from .replay import make_replay_viewer
+
+        print(json.dumps(make_replay_viewer(args.policy, args.out, seed=args.seed, max_steps=args.max_steps, domain_randomization=args.domain_randomization), indent=2))
+        return 0
+
     if args.command == "scale-plan":
         from .backends import write_backend_scale_plan
 
@@ -395,6 +424,32 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(json.dumps(rl_result["summary"], indent=2), flush=True)
                 next_step += 1
+                if args.robustness:
+                    from .robustness import run_robustness_ablations
+
+                    print(f"[{next_step}/{total_steps}] running robustness ablations", flush=True)
+                    robustness_result = run_robustness_ablations(
+                        rl_result["model_path"],
+                        run_dir / "robustness",
+                        episodes=max(4, args.eval_episodes // 20),
+                        seed=args.seed + 10,
+                        max_steps=max(50, args.max_steps // 2),
+                    )
+                    print(json.dumps(robustness_result["summary"], indent=2), flush=True)
+                    next_step += 1
+                if args.replay_viewer:
+                    from .replay import make_replay_viewer
+
+                    print(f"[{next_step}/{total_steps}] writing replay viewer", flush=True)
+                    replay_result = make_replay_viewer(
+                        rl_result["model_path"],
+                        run_dir / "replay",
+                        seed=args.seed + 11,
+                        max_steps=min(120, args.max_steps),
+                        domain_randomization=True,
+                    )
+                    print(json.dumps(replay_result, indent=2), flush=True)
+                    next_step += 1
             else:
                 rl_result = None
             if args.scale_study:
@@ -463,6 +518,32 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(json.dumps(rl_result["summary"], indent=2), flush=True)
                 after_selfplay_step += 1
+                if args.robustness:
+                    from .robustness import run_robustness_ablations
+
+                    print(f"[{after_selfplay_step}/9] running robustness ablations", flush=True)
+                    robustness_result = run_robustness_ablations(
+                        rl_result["model_path"],
+                        run_dir / "robustness",
+                        episodes=max(4, args.eval_episodes // 20),
+                        seed=args.seed + 10,
+                        max_steps=max(50, args.max_steps // 2),
+                    )
+                    print(json.dumps(robustness_result["summary"], indent=2), flush=True)
+                    after_selfplay_step += 1
+                if args.replay_viewer:
+                    from .replay import make_replay_viewer
+
+                    print(f"[{after_selfplay_step}/9] writing replay viewer", flush=True)
+                    replay_result = make_replay_viewer(
+                        rl_result["model_path"],
+                        run_dir / "replay",
+                        seed=args.seed + 11,
+                        max_steps=min(120, args.max_steps),
+                        domain_randomization=True,
+                    )
+                    print(json.dumps(replay_result, indent=2), flush=True)
+                    after_selfplay_step += 1
             else:
                 rl_result = None
             if args.scale_study:

@@ -10,6 +10,8 @@ from ghostfighter.improve import run_scale_study
 from ghostfighter.render import make_safety_dashboard
 from ghostfighter.selfplay import run_population_self_play
 from ghostfighter.rl import PPOConfig, train_ppo_self_play
+from ghostfighter.robustness import run_robustness_ablations
+from ghostfighter.replay import make_replay_viewer
 from ghostfighter.vector_env import SyncVectorFightEnv
 from ghostfighter.cli import build_parser
 
@@ -118,6 +120,29 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
     assert (tmp_path / "rl" / "RL_TRAINING_CARD.md").exists()
 
 
+def test_tiny_robustness_and_replay_outputs(tmp_path: Path):
+    result = train_ppo_self_play(
+        tmp_path / "rl",
+        config=PPOConfig(
+            updates=1,
+            matches_per_update=1,
+            max_steps=15,
+            epochs=1,
+            batch_size=32,
+            hidden=32,
+            seed=211,
+            domain_randomization=False,
+        ),
+    )
+    robustness = run_robustness_ablations(result["model_path"], tmp_path / "robustness", episodes=1, seed=212, max_steps=15)
+    assert robustness["summary"]["ablations"]
+    assert (tmp_path / "robustness" / "ROBUSTNESS_REPORT.md").exists()
+    assert (tmp_path / "robustness" / "robustness_dashboard.png").exists()
+    replay = make_replay_viewer(result["model_path"], tmp_path / "replay", seed=213, max_steps=15, domain_randomization=False)
+    assert Path(replay["replay"]).exists()
+    assert Path(replay["viewer"]).exists()
+
+
 def test_tiny_benchmark_outputs(tmp_path: Path):
     data = tmp_path / "traces.npz"
     generate_trace_dataset(data, episodes_per_style=1, seed=177, max_steps=25)
@@ -173,6 +198,10 @@ def test_cli_accepts_benchmark_options():
     assert args.command == "self-play"
     args = parser.parse_args(["train-rl", "--updates", "1", "--matches-per-update", "2"])
     assert args.command == "train-rl"
+    args = parser.parse_args(["robustness", "--episodes", "1"])
+    assert args.command == "robustness"
+    args = parser.parse_args(["replay-viewer", "--max-steps", "10"])
+    assert args.command == "replay-viewer"
     args = parser.parse_args(["scale-plan"])
     assert args.command == "scale-plan"
     args = parser.parse_args(["benchmark", "--suite", "regression", "--episodes", "4"])
@@ -193,5 +222,8 @@ def test_cli_accepts_benchmark_options():
     assert args.domain_randomization is True
     args = parser.parse_args(["all", "--rl"])
     assert args.rl is True
+    args = parser.parse_args(["all", "--rl", "--robustness", "--replay-viewer"])
+    assert args.robustness is True
+    assert args.replay_viewer is True
     args = parser.parse_args(["all", "--gen0-source", "attributes", "--variants-per-archetype", "2"])
     assert args.gen0_source == "attributes"

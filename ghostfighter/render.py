@@ -344,6 +344,7 @@ def write_model_card(run_dir: str | Path) -> str:
     scaling = json.loads((run_dir / "scaling" / "scaling_study.json").read_text()) if (run_dir / "scaling" / "scaling_study.json").exists() else {}
     selfplay = json.loads((run_dir / "selfplay" / "selfplay_summary.json").read_text()) if (run_dir / "selfplay" / "selfplay_summary.json").exists() else {}
     rl = json.loads((run_dir / "rl" / "ppo_summary.json").read_text()) if (run_dir / "rl" / "ppo_summary.json").exists() else {}
+    robustness = json.loads((run_dir / "robustness" / "robustness_summary.json").read_text()) if (run_dir / "robustness" / "robustness_summary.json").exists() else {}
     text = f"""# GhostFighter Model Card
 
 ## Model
@@ -404,6 +405,12 @@ Generation Zero is created from user-configurable policy attributes rather than 
 {json.dumps(rl, indent=2)}
 ```
 
+## Robustness Ablations
+
+```json
+{json.dumps(robustness, indent=2)}
+```
+
 ## Scaling Study
 
 ```json
@@ -454,6 +461,12 @@ def write_run_card(run_dir: str | Path) -> str:
         ("rl/LEADERBOARD.md", "PPO league leaderboard report"),
         ("rl/league_matches.csv", "PPO league match table"),
         ("rl/RL_TRAINING_CARD.md", "PPO self-play training card"),
+        ("robustness/robustness_results.csv", "PPO robustness ablation table"),
+        ("robustness/robustness_summary.json", "PPO robustness ablation summary"),
+        ("robustness/robustness_dashboard.png", "PPO robustness ablation dashboard"),
+        ("robustness/ROBUSTNESS_REPORT.md", "PPO robustness ablation report"),
+        ("replay/replay.json", "serialized PPO replay"),
+        ("replay/replay_viewer.html", "offline PPO replay viewer"),
         ("backends/backend_scale_plan.json", "backend rollout-scale target mapping"),
         ("backends/BACKEND_SCALE_PLAN.md", "Isaac Lab and MuJoCo scale plan"),
         ("scaling/scaling_study.json", "self-improvement scaling summary"),

@@ -20,6 +20,8 @@ The goal is to make simulated fights become a robot-learning data flywheel: conf
 - Domain randomization for mass, inertia, friction, floor compliance, latency, motor strength, actuator delay, damping, sensor noise, restitution, battery sag, thermal limits, terrain, and external pushes.
 - Population-based self-play across `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist` roles with Elo-style ratings, exploitability, policy diversity, and failure-mode reports.
 - PPO actor-critic self-play trainer with historical opponent snapshots and league leaderboard artifacts.
+- Robustness ablation runner for PPO policies under nominal, domain-randomized, actuator-degraded, boundary-pressure, and recovery-stress conditions.
+- Offline replay viewer that writes a serialized fight plus standalone HTML canvas/timeline inspector.
 - Synchronous local vector environment API as the lightweight bridge toward Isaac Lab-style batched rollout collection.
 - Dataset generator that logs observations, actions, rewards, policy-condition ids, episode ids, fighter ids, policy ids, source ids, and attribute vectors.
 - Conditional PyTorch behavior-cloning policy that can execute different policy archetypes from the same network.
@@ -70,6 +72,12 @@ runs/default/
   rl/leaderboard.csv
   rl/LEADERBOARD.md
   rl/RL_TRAINING_CARD.md
+  robustness/robustness_results.csv
+  robustness/robustness_summary.json
+  robustness/robustness_dashboard.png
+  robustness/ROBUSTNESS_REPORT.md
+  replay/replay.json
+  replay/replay_viewer.html
   backends/backend_scale_plan.json
   backends/BACKEND_SCALE_PLAN.md
   models/ghost_policy.pt
@@ -131,6 +139,18 @@ Train with PPO self-play:
 
 ```bash
 python -m ghostfighter.cli train-rl --out runs/default/rl --updates 8 --matches-per-update 16 --max-steps 90
+```
+
+Run PPO robustness ablations:
+
+```bash
+python -m ghostfighter.cli robustness --policy runs/default/rl/ppo_policy.pt --out runs/default/robustness --episodes 12
+```
+
+Write an offline replay viewer:
+
+```bash
+python -m ghostfighter.cli replay-viewer --policy runs/default/rl/ppo_policy.pt --out runs/default/replay
 ```
 
 Write the scale backend plan:
@@ -238,6 +258,8 @@ GhostFighter demonstrates that operating model end to end.
 - Generation Zero data is created from user-specified policy attributes, so the starting corpus is configurable and randomized rather than hardcoded to one set of scripts.
 - Population self-play reports Elo-style ratings, exploitability gaps, Jensen-Shannon policy diversity, and failure modes across adversarial roles.
 - PPO self-play produces policy checkpoints, training curves, historical-opponent league matches, and a leaderboard.
+- Robustness ablations compare nominal, randomized, actuator-degraded, boundary-pressure, and recovery-stress outcomes for PPO policies.
+- The replay viewer makes trained-policy behavior inspectable step by step without rerunning the simulator.
 - Domain-randomized rollouts exercise standard sim-to-real variables and write a dedicated card describing the sampled ranges.
 - Each full run writes a model card, run card, dashboard, safety dashboard, and safety case so results are inspectable without reading code first.
 

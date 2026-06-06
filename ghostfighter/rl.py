@@ -342,6 +342,18 @@ def _save_actor_checkpoint(path: Path, model: ActorCriticPolicy, config: PPOConf
     )
 
 
+def load_actor_checkpoint(path: str | Path, map_location: str = "cpu") -> tuple[ActorCriticPolicy, dict[str, object]]:
+    ckpt = torch.load(path, map_location=map_location, weights_only=False)
+    model = ActorCriticPolicy(
+        obs_dim=int(ckpt["obs_dim"]),
+        hidden=int(ckpt.get("hidden", 128)),
+        num_actions=len(ckpt.get("action_names", ACTION_NAMES)),
+    )
+    model.load_state_dict(ckpt["model_state"])
+    model.eval()
+    return model, ckpt
+
+
 def _write_leaderboard_md(path: Path, board: list[dict[str, object]]) -> None:
     lines = ["# GhostFighter League Leaderboard", "", "| Rank | Agent | Elo | Score Rate | Falls |", "|---:|---|---:|---:|---:|"]
     for idx, row in enumerate(board, start=1):
