@@ -456,6 +456,7 @@ def write_run_card(run_dir: str | Path) -> str:
         ("selfplay/DOMAIN_RANDOMIZATION_CARD.md", "self-play domain-randomization card"),
         ("rl/ppo_policy.pt", "PPO-trained actor-critic policy"),
         ("rl/ppo_training_curve.csv", "PPO self-play learning curve"),
+        ("rl/ppo_reward_terms.csv", "PPO decomposed reward term table"),
         ("rl/ppo_summary.json", "PPO self-play training summary"),
         ("rl/leaderboard.csv", "PPO league leaderboard"),
         ("rl/LEADERBOARD.md", "PPO league leaderboard report"),

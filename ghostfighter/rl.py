@@ -79,6 +79,16 @@ class PPOConfig:
     domain_intensity: float = 0.45
 
 
+REWARD_TERM_NAMES = [
+    "base_env_reward",
+    "fall_penalty",
+    "low_balance_penalty",
+    "low_stamina_penalty",
+    "boundary_loss_penalty",
+    "center_control",
+]
+
+
 def train_ppo_self_play(
     out_dir: str | Path,
     config: PPOConfig | None = None,
@@ -99,6 +109,7 @@ def train_ppo_self_play(
     historical: list[dict[str, object]] = []
     elo = {"ppo_current": 1000.0}
     rows = []
+    reward_term_rows = []
 
     for update in range(1, config.updates + 1):
         rollout = _collect_ppo_rollout(model, historical, role_population, config, rng, verbose=verbose)
@@ -126,13 +137,26 @@ def train_ppo_self_play(
             "eval_win_rate": float(score["win_rate"]),
             "eval_fall_rate": float(score["fall_rate"]),
         }
+        for name, value in rollout["reward_term_means"].items():
+            row[f"reward_mean_{name}"] = float(value)
         rows.append(row)
+        reward_term_rows.extend(
+            {
+                "update": update,
+                "term": name,
+                "mean_per_step": float(rollout["reward_term_means"][name]),
+                "sum": float(rollout["reward_term_sums"][name]),
+            }
+            for name in REWARD_TERM_NAMES
+        )
         if verbose:
             print(f"ppo update {update}/{config.updates} return={row['mean_return']:.3f} elo={row['elo']:.1f}", flush=True)
 
     _save_actor_checkpoint(out_dir / "ppo_policy.pt", model, config, {"final_update": config.updates, "elo": elo["ppo_current"]})
     curve = pd.DataFrame(rows)
     curve.to_csv(out_dir / "ppo_training_curve.csv", index=False)
+    reward_terms = pd.DataFrame(reward_term_rows)
+    reward_terms.to_csv(out_dir / "ppo_reward_terms.csv", index=False)
     leaderboard = run_policy_leaderboard(model, historical, role_population, out_dir, seed=config.seed + 99, max_steps=config.max_steps)
     summary = {
         "updates": config.updates,
@@ -140,6 +164,7 @@ def train_ppo_self_play(
         "matches": int(curve["episodes"].sum()) if not curve.empty else 0,
         "final_mean_return": float(curve["mean_return"].iloc[-1]) if not curve.empty else 0.0,
         "final_elo": float(elo["ppo_current"]),
+        "final_reward_terms": rows[-1] if rows else {},
         "historical_opponents": len(historical),
         "leaderboard": leaderboard["summary"],
         "config": config.__dict__,
@@ -152,6 +177,7 @@ def train_ppo_self_play(
 def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, rng, verbose: bool = False) -> dict[str, object]:
     obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf = [], [], [], [], [], []
     episode_returns, episode_lengths = [], []
+    term_values = {name: [] for name in REWARD_TERM_NAMES}
     for episode in range(config.matches_per_update):
         seed = int(rng.integers(1, 10_000_000))
         env = FightEnv(config=SimConfig(max_steps=config.max_steps, seed=seed), seed=seed)
@@ -169,8 +195,10 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
         while not done:
             action, logp, value = model.act(obs_red, deterministic=False)
             action_blue = int(blue_policy.select_action(obs_blue, env, 1))
-            next_red, next_blue, reward, _blue_reward, done, _info = env.step(action, action_blue)
-            reward += _safety_shaping(env)
+            pre_env = env.clone()
+            next_red, next_blue, base_reward, _blue_reward, done, info = env.step(action, action_blue)
+            terms = _reward_terms(pre_env, env, float(base_reward), info)
+            reward = float(sum(terms.values()))
             if profile is not None and not done:
                 apply_external_push(env, rng, profile)
                 next_red = apply_observation_noise(env.observe(0), rng, profile)
@@ -180,6 +208,8 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
             logp_buf.append(logp)
             value_buf.append(value)
             reward_buf.append(float(reward))
+            for name in REWARD_TERM_NAMES:
+                term_values[name].append(float(terms[name]))
             done_buf.append(bool(done))
             total += float(reward)
             length += 1
@@ -187,6 +217,8 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
         episode_returns.append(total)
         episode_lengths.append(length)
     advantages, returns = _gae(np.asarray(reward_buf, dtype=np.float32), np.asarray(value_buf, dtype=np.float32), np.asarray(done_buf, dtype=bool), config)
+    term_sums = {name: float(np.sum(values)) for name, values in term_values.items()}
+    term_means = {name: float(np.mean(values)) if values else 0.0 for name, values in term_values.items()}
     return {
         "obs": np.asarray(obs_buf, dtype=np.float32),
         "actions": np.asarray(action_buf, dtype=np.int64),
@@ -197,6 +229,8 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
         "episode_returns": episode_returns,
         "episode_lengths": episode_lengths,
         "episodes": config.matches_per_update,
+        "reward_term_sums": term_sums,
+        "reward_term_means": term_means,
     }
 
 
@@ -265,8 +299,19 @@ def _sample_opponent_policy(historical, role_population, rng):
     return AttributePolicy(attrs, lookahead=False)
 
 
-def _safety_shaping(env: FightEnv) -> float:
-    return -0.35 * env.red.falls - 0.025 * max(0.0, 0.25 - env.red.balance) - 0.010 * max(0.0, 0.18 - env.red.stamina)
+def _reward_terms(pre_env: FightEnv, env: FightEnv, base_reward: float, info: dict[str, object]) -> dict[str, float]:
+    red_radius = float(np.linalg.norm(env.red.pos()))
+    blue_radius = float(np.linalg.norm(env.blue.pos()))
+    boundary_losses = sum(1 for event in info.get("events", []) if event.get("kind") == "boundary" and event.get("target") == 0)
+    red_fall_delta = int(env.red.falls - pre_env.red.falls)
+    return {
+        "base_env_reward": float(base_reward),
+        "fall_penalty": float(-0.35 * red_fall_delta),
+        "low_balance_penalty": float(-0.025 * max(0.0, 0.25 - env.red.balance)),
+        "low_stamina_penalty": float(-0.010 * max(0.0, 0.18 - env.red.stamina)),
+        "boundary_loss_penalty": float(-0.08 * boundary_losses),
+        "center_control": float(0.005 * (blue_radius - red_radius)),
+    }
 
 
 def _update_training_elo(model, historical, role_population, rng, config: PPOConfig) -> dict[str, float]:
@@ -467,6 +512,8 @@ def _write_rl_card(path: Path, summary: dict[str, object]) -> None:
     text = f"""# RL Self-Play Training Card
 
 This run trains an actor-critic policy with PPO from match rewards. Generation Zero remains useful for bootstrapping, but this artifact is the first real learning loop: the current policy collects rollouts, updates from advantages, snapshots historical opponents, evaluates against a small league, and writes a leaderboard.
+
+The reward is decomposed into inspectable terms: `{', '.join(REWARD_TERM_NAMES)}`. Per-update term means and sums are written to `ppo_reward_terms.csv`, and the training curve includes PPO diagnostics such as KL, clip fraction, entropy, and value explained variance.
 
 ```json
 {json.dumps(summary, indent=2)}

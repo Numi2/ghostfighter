@@ -115,6 +115,7 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
     assert result["summary"]["updates"] == 1
     assert Path(result["model_path"]).exists()
     assert (tmp_path / "rl" / "ppo_training_curve.csv").exists()
+    assert (tmp_path / "rl" / "ppo_reward_terms.csv").exists()
     assert (tmp_path / "rl" / "leaderboard.csv").exists()
     assert (tmp_path / "rl" / "LEADERBOARD.md").exists()
     assert (tmp_path / "rl" / "payoff_matrix.csv").exists()
@@ -124,6 +125,8 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
     assert "meta_exploitability" in result["summary"]["leaderboard"]
     assert "approx_kl" in result["curve"][0]
     assert "explained_variance" in result["curve"][0]
+    assert "reward_mean_base_env_reward" in result["curve"][0]
+    assert "final_reward_terms" in result["summary"]
 
 
 def test_tiny_robustness_and_replay_outputs(tmp_path: Path):
