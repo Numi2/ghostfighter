@@ -1,4 +1,4 @@
-.PHONY: test smoke forge-zero benchmark tune-safety scale-study reference data train evaluate dashboard demo
+.PHONY: test smoke forge-zero self-play scale-plan benchmark tune-safety scale-study reference data train evaluate dashboard demo
 
 test:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
@@ -8,6 +8,12 @@ smoke:
 
 forge-zero:
 	PYTHONPATH=. python -m ghostfighter.cli forge-zero --out runs/default/data/traces.npz --episodes-per-style 80 --variants-per-archetype 8
+
+self-play:
+	PYTHONPATH=. python -m ghostfighter.cli self-play --out runs/default/selfplay --generations 3 --matches-per-pair 2 --variants-per-role 2
+
+scale-plan:
+	PYTHONPATH=. python -m ghostfighter.cli scale-plan --out runs/default/backends
 
 benchmark:
 	PYTHONPATH=. python -m ghostfighter.cli benchmark --model runs/default/models/ghost_policy.pt --out runs/default/reports --suite all --episodes 80

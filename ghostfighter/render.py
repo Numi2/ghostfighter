@@ -342,6 +342,7 @@ def write_model_card(run_dir: str | Path) -> str:
     scenario_summary = json.loads((run_dir / "reports" / "scenario_summary.json").read_text()) if (run_dir / "reports" / "scenario_summary.json").exists() else {}
     safety_tuning = json.loads((run_dir / "reports" / "safety_tuning.json").read_text()) if (run_dir / "reports" / "safety_tuning.json").exists() else {}
     scaling = json.loads((run_dir / "scaling" / "scaling_study.json").read_text()) if (run_dir / "scaling" / "scaling_study.json").exists() else {}
+    selfplay = json.loads((run_dir / "selfplay" / "selfplay_summary.json").read_text()) if (run_dir / "selfplay" / "selfplay_summary.json").exists() else {}
     text = f"""# GhostFighter Model Card
 
 ## Model
@@ -390,6 +391,12 @@ Generation Zero is created from user-configurable policy attributes rather than 
 {json.dumps(safety_tuning, indent=2)}
 ```
 
+## Population Self-Play
+
+```json
+{json.dumps(selfplay, indent=2)}
+```
+
 ## Scaling Study
 
 ```json
@@ -426,6 +433,15 @@ def write_run_card(run_dir: str | Path) -> str:
         ("gen0/attribute_dataset_summary.json", "Generation Zero dataset summary"),
         ("gen0/attribute_dashboard.png", "Generation Zero attribute dashboard"),
         ("gen0/GENERATION_ZERO_CARD.md", "Generation Zero provenance card"),
+        ("gen0/DOMAIN_RANDOMIZATION_CARD.md", "Generation Zero domain-randomization card"),
+        ("selfplay/selfplay_matches.csv", "population self-play match table"),
+        ("selfplay/population.csv", "self-play population ratings and failure modes"),
+        ("selfplay/selfplay_summary.json", "self-play Elo/diversity/exploitability summary"),
+        ("selfplay/selfplay_dashboard.png", "self-play dashboard"),
+        ("selfplay/SELF_PLAY_CARD.md", "population self-play card"),
+        ("selfplay/DOMAIN_RANDOMIZATION_CARD.md", "self-play domain-randomization card"),
+        ("backends/backend_scale_plan.json", "backend rollout-scale target mapping"),
+        ("backends/BACKEND_SCALE_PLAN.md", "Isaac Lab and MuJoCo scale plan"),
         ("scaling/scaling_study.json", "self-improvement scaling summary"),
         ("scaling/scaling_dashboard.png", "self-improvement scaling dashboard"),
         ("scaling/LEARNING_CASE.md", "learning-over-time case"),

@@ -5,10 +5,10 @@ GhostFighter is a complete, self-contained prototype for autonomous humanoid rob
 the pipeline:
 
 1. Generate Generation Zero rollout data from user-specified policy attributes.
-2. Train a conditional autonomous ghost policy from those traces.
-3. Evaluate the same policy with and without a pre-controller safety firewall.
-4. Render a demo fight and produce an evaluation dashboard.
-5. Package all logs, metrics, models, and reports so the work can be reviewed like an internal engineering artifact.
+2. Run population self-play across adversarial policy roles.
+3. Train a conditional autonomous ghost policy from those traces.
+4. Evaluate the same policy with and without a pre-controller safety firewall.
+5. Render a demo fight and produce dashboards, cards, and benchmark reports.
 
 The goal is to make simulated fights become a robot-learning data flywheel: configurable policy attributes generate reusable autonomous-policy data, those policies are stress-tested in batch, and risky actions are blocked before a real robot ever receives them.
 
@@ -17,6 +17,8 @@ The goal is to make simulated fights become a robot-learning data flywheel: conf
 - High-level humanoid combat simulator with ring boundary, stamina, guard, balance, actuator damage, cooldowns, knockdowns, and scoring.
 - Four pilot policy archetypes: `pressure`, `counter`, `evasive`, and `bully`.
 - Attribute-driven Generation Zero generator that samples randomized policy variants from user-defined behavior ranges.
+- Domain randomization for mass, inertia, friction, floor compliance, latency, motor strength, actuator delay, damping, sensor noise, restitution, battery sag, thermal limits, terrain, and external pushes.
+- Population-based self-play across `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist` roles with Elo-style ratings, exploitability, policy diversity, and failure-mode reports.
 - Dataset generator that logs observations, actions, rewards, policy-condition ids, episode ids, fighter ids, policy ids, source ids, and attribute vectors.
 - Conditional PyTorch behavior-cloning policy that can execute different policy archetypes from the same network.
 - Combat safety firewall that estimates risk from balance, stamina, boundary pressure, actuator damage, cooldown state, momentum, incoming contact, and likely whiffs.
@@ -38,7 +40,7 @@ The project does not require MuJoCo, Isaac, ROS, or a GPU. It is intentionally s
 ## Run the complete pipeline
 
 ```bash
-python -m ghostfighter.cli all --out runs/default --episodes-per-style 80 --epochs 8 --eval-episodes 160 --stress --benchmark --scale-study
+python -m ghostfighter.cli all --out runs/default --episodes-per-style 80 --epochs 8 --eval-episodes 160 --stress --benchmark --scale-study --self-play --domain-randomization
 ```
 
 This creates:
@@ -53,6 +55,15 @@ runs/default/
   gen0/attribute_dataset_summary.json
   gen0/attribute_dashboard.png
   gen0/GENERATION_ZERO_CARD.md
+  gen0/DOMAIN_RANDOMIZATION_CARD.md
+  selfplay/selfplay_matches.csv
+  selfplay/population.csv
+  selfplay/selfplay_summary.json
+  selfplay/selfplay_dashboard.png
+  selfplay/SELF_PLAY_CARD.md
+  selfplay/DOMAIN_RANDOMIZATION_CARD.md
+  backends/backend_scale_plan.json
+  backends/BACKEND_SCALE_PLAN.md
   models/ghost_policy.pt
   models/training_curve.csv
   models/training_metrics.json
@@ -94,6 +105,24 @@ Generate only Generation Zero artifacts:
 
 ```bash
 python -m ghostfighter.cli forge-zero --out runs/default/data/traces.npz --episodes-per-style 80 --variants-per-archetype 8
+```
+
+Generate domain-randomized Generation Zero traces:
+
+```bash
+python -m ghostfighter.cli generate-data --source attributes --domain-randomization --out runs/default/data/traces.npz --episodes-per-style 80 --variants-per-archetype 8
+```
+
+Run population self-play:
+
+```bash
+python -m ghostfighter.cli self-play --out runs/default/selfplay --generations 3 --matches-per-pair 2 --variants-per-role 2
+```
+
+Write the scale backend plan:
+
+```bash
+python -m ghostfighter.cli scale-plan --out runs/default/backends
 ```
 
 Train the ghost policy:
@@ -172,6 +201,10 @@ Generation Zero is attribute-driven. A user can define behavior ranges for each 
 
 The full spec also controls counter timing, lateral mobility, stamina discipline, boundary awareness, and damage targeting. The labels are fighting-inspired, but the generator is an industry-style policy prior: users specify behavior attributes, the system samples randomized policy variants, and the learned ghost policy trains from those rollouts.
 
+Self-play is separate from the bootstrap generator. GhostFighter maintains a population of adversarial policy roles: `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist`. They fight each other across generations, update Elo-style ratings, and report exploitability, policy diversity, and failure modes. That gives the project an adversarial curriculum signal instead of relying only on fixed teacher policies.
+
+Domain randomization can be enabled during rollouts. The compact backend projects robotics variables onto equivalent high-level effects: speed, damping, balance recovery, contact instability, sensor noise, battery/thermal derating, terrain disturbance, and external pushes. The same profile schema is designed to map to Isaac Lab for vectorized GPU rollouts and MuJoCo for higher-fidelity validation when those external stacks are available.
+
 The firewall is a pre-controller gate. It does not replace the policy. It filters the policy’s proposed action and replaces unsafe commands with recover, guard, step, or escape actions when risk is high.
 
 ## Why this would matter to a robot-combat company
@@ -189,7 +222,13 @@ GhostFighter demonstrates that operating model end to end.
 - The safety tuning loop sweeps firewall thresholds and recommends the best setting for the current policy under a fall-averse benchmark objective.
 - The scaling ladder trains multiple generations with growing trace budgets and reports whether imitation accuracy, stress behavior, and the combined research score improve as data increases.
 - Generation Zero data is created from user-specified policy attributes, so the starting corpus is configurable and randomized rather than hardcoded to one set of scripts.
+- Population self-play reports Elo-style ratings, exploitability gaps, Jensen-Shannon policy diversity, and failure modes across adversarial roles.
+- Domain-randomized rollouts exercise standard sim-to-real variables and write a dedicated card describing the sampled ranges.
 - Each full run writes a model card, run card, dashboard, safety dashboard, and safety case so results are inspectable without reading code first.
+
+## Scale path
+
+The default backend is intentionally local and lightweight. It is appropriate for fast iteration, CI, and reproducible portfolio review. Serious robot-learning claims need millions to hundreds of millions of simulation steps. GhostFighter’s self-play and domain-randomization interfaces are structured so the same policy roles and randomization profile can be moved to a vectorized Isaac Lab training backend for GPU-scale rollout collection, then validated in a higher-fidelity MuJoCo backend before hardware tests.
 
 ## Limits
 

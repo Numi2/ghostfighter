@@ -5,6 +5,8 @@
 GhostFighter demonstrates a deployable autonomy pipeline for robot combat:
 
 - generate randomized Generation Zero policy rollouts from user-specified behavior attributes;
+- run population-based self-play for adversarial curriculum evidence;
+- apply domain randomization for sim-to-real stress;
 - evaluate policies over many matches;
 - block unsafe high-level actions before low-level controllers execute them;
 - produce reviewable metrics and visual artifacts.
@@ -51,6 +53,18 @@ Generation Zero is not hardcoded to one set of scripts. A user defines policy-at
 
 The dataset preserves provenance fields alongside observations and actions: policy-condition ids, policy variant ids, source ids, fighter ids, episode ids, rewards, and the sampled attribute vectors. The resulting artifacts under `gen0/` make the starting corpus inspectable before training begins.
 
+## Self-play curriculum
+
+The self-play module keeps a population of adversarial policy roles: striker, defender, stabilizer, evasive mover, and recovery specialist. These roles are not fixed scripted combat styles. They are policy priors that fight each other across generations.
+
+The runner records match tables, population ratings, Elo-style score updates, exploitability gaps, Jensen-Shannon action-diversity estimates, and failure modes such as falls, boundary losses, low-stamina finishes, and KO losses.
+
+## Domain randomization
+
+Domain randomization samples mass, inertia, friction, floor compliance, latency, motor strength, actuator delay, joint damping, IMU noise, encoder noise, contact restitution, battery voltage sag, thermal limits, terrain roughness, and external pushes.
+
+The local backend projects those variables onto high-level dynamics: speed, damping, balance recovery, contact instability, observation noise, derating, terrain disturbance, and push impulses. The same profile schema is designed to map into Isaac Lab for vectorized rollout generation and MuJoCo for high-fidelity validation.
+
 ## Safety firewall
 
 The firewall sits between the learned policy and the controller. It estimates risk for the proposed action using:
@@ -85,4 +99,4 @@ Metrics include win rate, draw rate, fall rate, health margin, score margin, uns
 
 ## Review signal
 
-The project shows practical judgment by separating autonomy research from low-level actuation. It builds the layer a robot-combat company needs to scale learning from simulator users and behavior specifications: configurable policy-data generation, conditional policy learning, safety gating, batch policy evaluation, replayable evidence, self-improvement studies, and reproducible reporting.
+The project shows practical judgment by separating autonomy research from low-level actuation. It builds the layer a robot-combat company needs to scale learning from simulator users and behavior specifications: configurable policy-data generation, population self-play, domain randomization, conditional policy learning, safety gating, batch policy evaluation, replayable evidence, self-improvement studies, and reproducible reporting.

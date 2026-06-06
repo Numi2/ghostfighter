@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--source", choices=["attributes", "scripted"], default="attributes")
     p.add_argument("--policy-spec", default=None)
     p.add_argument("--variants-per-archetype", type=positive_int, default=8)
+    p.add_argument("--domain-randomization", action="store_true")
+    p.add_argument("--domain-intensity", type=float, default=0.65)
 
     p = sub.add_parser("forge-zero", help="Generate attribute-driven Generation Zero policy data and artifacts.")
     p.add_argument("--out", default="runs/default/data/traces.npz")
@@ -47,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-steps", type=positive_int, default=180)
     p.add_argument("--policy-spec", default=None)
     p.add_argument("--variants-per-archetype", type=positive_int, default=8)
+    p.add_argument("--domain-randomization", action="store_true")
+    p.add_argument("--domain-intensity", type=float, default=0.65)
 
     p = sub.add_parser("train", help="Train behavior-cloned ghost policy.")
     p.add_argument("--data", default="runs/default/data/traces.npz")
@@ -103,6 +107,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batch-size", type=positive_int, default=1024)
     p.add_argument("--hidden", type=positive_int, default=128)
 
+    p = sub.add_parser("self-play", help="Run population-based adversarial self-play.")
+    p.add_argument("--out", default="runs/default/selfplay")
+    p.add_argument("--generations", type=positive_int, default=3)
+    p.add_argument("--matches-per-pair", type=positive_int, default=2)
+    p.add_argument("--variants-per-role", type=positive_int, default=2)
+    p.add_argument("--seed", type=int, default=1601)
+    p.add_argument("--max-steps", type=positive_int, default=90)
+    p.add_argument("--domain-randomization", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--domain-intensity", type=float, default=0.55)
+
+    p = sub.add_parser("scale-plan", help="Write the Isaac Lab/MuJoCo rollout-scale backend plan.")
+    p.add_argument("--out", default="runs/default/backends")
+
     p = sub.add_parser("all", help="Run the complete pipeline.")
     p.add_argument("--out", default="runs/default")
     p.add_argument("--episodes-per-style", type=positive_int, default=80)
@@ -115,9 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--gen0-source", choices=["attributes", "scripted"], default="attributes")
     p.add_argument("--policy-spec", default=None)
     p.add_argument("--variants-per-archetype", type=positive_int, default=8)
+    p.add_argument("--domain-randomization", action="store_true")
+    p.add_argument("--domain-intensity", type=float, default=0.65)
     p.add_argument("--stress", action="store_true", help="Include hardware-stress evaluation modes.")
     p.add_argument("--benchmark", action="store_true", help="Run scenario benchmark, safety dashboard, safety case, and model card.")
     p.add_argument("--scale-study", action="store_true", help="Run a data-scaling self-improvement study.")
+    p.add_argument("--self-play", action="store_true", help="Run population self-play and write Elo/diversity/failure-mode artifacts.")
     return parser
 
 
@@ -136,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
             source=args.source,
             policy_spec=args.policy_spec,
             variants_per_archetype=args.variants_per_archetype,
+            domain_randomization=args.domain_randomization,
+            domain_intensity=args.domain_intensity,
         )
         print(json.dumps(summary, indent=2))
         return 0
@@ -151,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
             source="attributes",
             policy_spec=args.policy_spec,
             variants_per_archetype=args.variants_per_archetype,
+            domain_randomization=args.domain_randomization,
+            domain_intensity=args.domain_intensity,
         )
         print(json.dumps(summary, indent=2))
         return 0
@@ -225,9 +249,33 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result["summary"], indent=2))
         return 0
 
+    if args.command == "self-play":
+        from .selfplay import run_population_self_play
+
+        result = run_population_self_play(
+            args.out,
+            generations=args.generations,
+            matches_per_pair=args.matches_per_pair,
+            seed=args.seed,
+            max_steps=args.max_steps,
+            variants_per_role=args.variants_per_role,
+            domain_randomization=args.domain_randomization,
+            domain_intensity=args.domain_intensity,
+            verbose=True,
+        )
+        print(json.dumps(result["summary"], indent=2))
+        return 0
+
+    if args.command == "scale-plan":
+        from .backends import write_backend_scale_plan
+
+        print(write_backend_scale_plan(args.out))
+        return 0
+
     if args.command == "all":
         from .dataset import generate_trace_dataset
         from .evaluate import evaluate_policy, evaluate_scripted_baseline
+        from .backends import write_backend_scale_plan
         from .render import make_dashboard, make_demo_gif, make_safety_dashboard, write_model_card, write_run_card
         from .train import train_behavior_cloning
 
@@ -245,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:
             source=args.gen0_source,
             policy_spec=args.policy_spec,
             variants_per_archetype=args.variants_per_archetype,
+            domain_randomization=args.domain_randomization,
+            domain_intensity=args.domain_intensity,
         )
         print(json.dumps(data_summary, indent=2), flush=True)
         print("[2/6] training ghost policy", flush=True)
@@ -258,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.benchmark:
             from .evaluate import run_scenario_suite
 
-            total_steps = 9 if args.scale_study else 8
+            total_steps = 10 if args.scale_study or args.self_play else 8
             print(f"[5/{total_steps}] running scenario benchmark", flush=True)
             benchmark_result = run_scenario_suite(
                 train_result["model_path"],
@@ -270,10 +320,30 @@ def main(argv: list[str] | None = None) -> int:
                 verbose=True,
             )
             print(json.dumps(benchmark_result["summary"], indent=2), flush=True)
+            if args.self_play:
+                from .selfplay import run_population_self_play
+
+                print(f"[6/{total_steps}] running population self-play", flush=True)
+                selfplay_result = run_population_self_play(
+                    run_dir / "selfplay",
+                    generations=3,
+                    matches_per_pair=2,
+                    seed=args.seed + 7,
+                    max_steps=max(60, args.max_steps // 2),
+                    variants_per_role=2,
+                    domain_randomization=True,
+                    domain_intensity=0.55,
+                    verbose=True,
+                )
+                print(json.dumps(selfplay_result["summary"], indent=2), flush=True)
+                next_step = 7
+            else:
+                selfplay_result = None
+                next_step = 6
             if args.scale_study:
                 from .improve import run_scale_study
 
-                print(f"[6/{total_steps}] running self-improvement scale study", flush=True)
+                print(f"[{next_step}/{total_steps}] running self-improvement scale study", flush=True)
                 scale_result = run_scale_study(
                     run_dir / "scaling",
                     episode_schedule=[
@@ -290,15 +360,35 @@ def main(argv: list[str] | None = None) -> int:
                     verbose=True,
                 )
                 print(json.dumps(scale_result["summary"], indent=2), flush=True)
-                print(f"[7/{total_steps}] rendering dashboards and demo", flush=True)
+                print(f"[{next_step + 1}/{total_steps}] rendering dashboards and demo", flush=True)
             else:
                 scale_result = None
-                print("[6/8] rendering dashboards and demo", flush=True)
+                print(f"[{next_step}/{total_steps}] rendering dashboards and demo", flush=True)
         else:
+            if args.self_play:
+                from .selfplay import run_population_self_play
+
+                print("[5/8] running population self-play", flush=True)
+                selfplay_result = run_population_self_play(
+                    run_dir / "selfplay",
+                    generations=3,
+                    matches_per_pair=2,
+                    seed=args.seed + 7,
+                    max_steps=max(60, args.max_steps // 2),
+                    variants_per_role=2,
+                    domain_randomization=True,
+                    domain_intensity=0.55,
+                    verbose=True,
+                )
+                print(json.dumps(selfplay_result["summary"], indent=2), flush=True)
+                after_selfplay_step = 6
+            else:
+                selfplay_result = None
+                after_selfplay_step = 5
             if args.scale_study:
                 from .improve import run_scale_study
 
-                print("[5/8] running self-improvement scale study", flush=True)
+                print(f"[{after_selfplay_step}/8] running self-improvement scale study", flush=True)
                 scale_result = run_scale_study(
                     run_dir / "scaling",
                     episode_schedule=[
@@ -315,17 +405,21 @@ def main(argv: list[str] | None = None) -> int:
                     verbose=True,
                 )
                 print(json.dumps(scale_result["summary"], indent=2), flush=True)
-                print("[6/8] rendering dashboard and demo", flush=True)
+                print(f"[{after_selfplay_step + 1}/8] rendering dashboard and demo", flush=True)
             else:
                 scale_result = None
-                print("[5/6] rendering dashboard and demo", flush=True)
+                if args.self_play:
+                    print(f"[{after_selfplay_step}/8] rendering dashboard and demo", flush=True)
+                else:
+                    print("[5/6] rendering dashboard and demo", flush=True)
         dashboard_path = make_dashboard(report_dir)
+        backend_plan_path = write_backend_scale_plan(run_dir / "backends")
         safety_dashboard_path = make_safety_dashboard(report_dir) if args.benchmark else None
         style_id = STYLE_NAMES.index(args.demo_style)
         gif_path = make_demo_gif(train_result["model_path"], video_path, style_id=style_id, seed=args.seed + 4, max_steps=min(120, args.max_steps))
-        if args.benchmark or args.scale_study:
-            total_steps = 9 if args.scale_study else 8
-            if args.scale_study and not args.benchmark:
+        if args.benchmark or args.scale_study or args.self_play:
+            total_steps = 10 if (args.benchmark and (args.scale_study or args.self_play)) else 8
+            if args.scale_study and not args.benchmark and not args.self_play:
                 total_steps = 8
             print(f"[{total_steps - 1}/{total_steps}] writing model card", flush=True)
             model_card_path = write_model_card(run_dir)
@@ -340,6 +434,7 @@ def main(argv: list[str] | None = None) -> int:
                     "run_dir": str(run_dir),
                     "dashboard": dashboard_path,
                     "safety_dashboard": safety_dashboard_path,
+                    "backend_scale_plan": backend_plan_path,
                     "demo_gif": gif_path,
                     "model_card": model_card_path,
                     "run_card": card_path,

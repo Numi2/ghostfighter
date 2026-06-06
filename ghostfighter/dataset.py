@@ -11,6 +11,14 @@ from torch.utils.data import Dataset
 
 from .config import ACTION_NAMES, STYLE_NAMES, STYLE_TO_ID, SimConfig
 from .env import FightEnv
+from .domain import (
+    apply_domain_randomization,
+    apply_external_push,
+    apply_observation_noise,
+    sample_domain_randomization,
+    summarize_domain_profiles,
+    write_domain_randomization_card,
+)
 from .policies import ScriptedPilot
 from .attributes import (
     ATTRIBUTE_NAMES,
@@ -45,6 +53,8 @@ def generate_trace_dataset(
     source: str = "attributes",
     policy_spec: str | Path | None = None,
     variants_per_archetype: int = 8,
+    domain_randomization: bool = False,
+    domain_intensity: float = 0.65,
 ) -> Dict[str, object]:
     """Generate Generation Zero traces from attribute policies or scripted baselines.
 
@@ -61,6 +71,8 @@ def generate_trace_dataset(
             max_steps=max_steps,
             policy_spec=policy_spec,
             variants_per_archetype=variants_per_archetype,
+            domain_randomization=domain_randomization,
+            domain_intensity=domain_intensity,
         )
     raise ValueError("source must be 'attributes' or 'scripted'")
 
@@ -164,6 +176,8 @@ def generate_attribute_trace_dataset(
     max_steps: int | None = None,
     policy_spec: str | Path | None = None,
     variants_per_archetype: int = 8,
+    domain_randomization: bool = False,
+    domain_intensity: float = 0.65,
 ) -> Dict[str, object]:
     """Generate Generation Zero traces from user-specified policy attributes."""
     out_path = Path(out_path)
@@ -192,6 +206,7 @@ def generate_attribute_trace_dataset(
     policy_id_buf: list[int] = []
     source_id_buf: list[int] = []
     attr_buf: list[np.ndarray] = []
+    domain_profiles = []
     action_counts = {name: 0 for name in ACTION_NAMES}
     archetype_counts = {name: 0 for name in STYLE_NAMES}
     variant_episode_counts = {p.policy_id: 0 for p in policies}
@@ -209,6 +224,14 @@ def generate_attribute_trace_dataset(
             blue_policy = AttributePolicy(opp_attrs, lookahead=False)
             env = FightEnv(config=config, seed=int(rng.integers(1, 10_000_000)))
             obs_red, obs_blue = env.reset(randomize=True)
+            profile = None
+            domain_rng = np.random.default_rng(int(rng.integers(1, 10_000_000)))
+            if domain_randomization:
+                profile = sample_domain_randomization(domain_rng, intensity=domain_intensity)
+                domain_profiles.append(profile)
+                apply_domain_randomization(env, profile)
+                obs_red = apply_observation_noise(env.observe(0), domain_rng, profile)
+                obs_blue = apply_observation_noise(env.observe(1), domain_rng, profile)
             done = False
             while not done:
                 action_red = red_policy.select_action(obs_red, env, 0)
@@ -234,6 +257,10 @@ def generate_attribute_trace_dataset(
                 action_counts[ACTION_NAMES[action_blue]] += 1
 
                 next_red, next_blue, r_red, r_blue, done, _info = env.step(action_red, action_blue)
+                if profile is not None and not done:
+                    apply_external_push(env, domain_rng, profile)
+                    next_red = apply_observation_noise(env.observe(0), domain_rng, profile)
+                    next_blue = apply_observation_noise(env.observe(1), domain_rng, profile)
                 reward_buf.extend([r_red, r_blue])
                 obs_red, obs_blue = next_red, next_blue
                 total_steps += 1
@@ -285,6 +312,7 @@ def generate_attribute_trace_dataset(
         "variant_episode_counts": variant_episode_counts,
         "action_counts": action_counts,
         "attribute_ranges": _observed_attribute_ranges(policies),
+        "domain_randomization": summarize_domain_profiles(domain_profiles),
         "steps": int(total_steps),
         "seed": seed,
     }
@@ -293,6 +321,8 @@ def generate_attribute_trace_dataset(
     (gen0_dir / "attribute_dataset_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     _write_generation_zero_card(gen0_dir / "GENERATION_ZERO_CARD.md", summary)
     _make_attribute_dashboard(gen0_dir / "attribute_dashboard.png", policy_rows, action_counts)
+    if domain_randomization:
+        write_domain_randomization_card(gen0_dir / "DOMAIN_RANDOMIZATION_CARD.md", summary["domain_randomization"])
     return summary
 
 

@@ -8,6 +8,7 @@ from ghostfighter.env import FightEnv
 from ghostfighter.evaluate import evaluate_policy, run_safety_threshold_sweep, run_scenario_suite
 from ghostfighter.improve import run_scale_study
 from ghostfighter.render import make_safety_dashboard
+from ghostfighter.selfplay import run_population_self_play
 from ghostfighter.cli import build_parser
 
 
@@ -44,6 +45,44 @@ def test_attribute_dataset_outputs_gen0_artifacts(tmp_path: Path):
     assert (tmp_path / "run" / "gen0" / "GENERATION_ZERO_CARD.md").exists()
     train = train_behavior_cloning(data, tmp_path / "models", config=TrainConfig(epochs=1, batch_size=64, seed=56), hidden=48)
     assert Path(train["model_path"]).exists()
+
+
+def test_domain_randomized_dataset_outputs_card(tmp_path: Path):
+    data = tmp_path / "run" / "data" / "traces.npz"
+    summary = generate_trace_dataset(
+        data,
+        episodes_per_style=1,
+        seed=65,
+        max_steps=18,
+        source="attributes",
+        variants_per_archetype=1,
+        domain_randomization=True,
+        domain_intensity=0.4,
+    )
+    assert summary["domain_randomization"]["enabled"] is True
+    assert (tmp_path / "run" / "gen0" / "DOMAIN_RANDOMIZATION_CARD.md").exists()
+
+
+def test_tiny_selfplay_outputs_population_metrics(tmp_path: Path):
+    result = run_population_self_play(
+        tmp_path / "selfplay",
+        generations=1,
+        matches_per_pair=1,
+        variants_per_role=1,
+        seed=91,
+        max_steps=20,
+        domain_randomization=True,
+        domain_intensity=0.25,
+    )
+    summary = result["summary"]
+    assert summary["population_size"] == 5
+    assert summary["matches"] == 20
+    assert "exploitability_elo_gap" in summary
+    assert "policy_diversity_jsd" in summary
+    assert (tmp_path / "selfplay" / "selfplay_matches.csv").exists()
+    assert (tmp_path / "selfplay" / "population.csv").exists()
+    assert (tmp_path / "selfplay" / "SELF_PLAY_CARD.md").exists()
+    assert (tmp_path / "selfplay" / "DOMAIN_RANDOMIZATION_CARD.md").exists()
 
 
 def test_tiny_benchmark_outputs(tmp_path: Path):
@@ -93,8 +132,14 @@ def test_cli_accepts_benchmark_options():
     parser = build_parser()
     args = parser.parse_args(["generate-data", "--source", "attributes", "--variants-per-archetype", "2"])
     assert args.source == "attributes"
+    args = parser.parse_args(["generate-data", "--domain-randomization", "--domain-intensity", "0.5"])
+    assert args.domain_randomization is True
     args = parser.parse_args(["forge-zero", "--variants-per-archetype", "2"])
     assert args.command == "forge-zero"
+    args = parser.parse_args(["self-play", "--generations", "1", "--matches-per-pair", "1"])
+    assert args.command == "self-play"
+    args = parser.parse_args(["scale-plan"])
+    assert args.command == "scale-plan"
     args = parser.parse_args(["benchmark", "--suite", "regression", "--episodes", "4"])
     assert args.command == "benchmark"
     assert args.suite == "regression"
@@ -108,5 +153,8 @@ def test_cli_accepts_benchmark_options():
     assert args.benchmark is True
     args = parser.parse_args(["all", "--scale-study"])
     assert args.scale_study is True
+    args = parser.parse_args(["all", "--self-play", "--domain-randomization"])
+    assert args.self_play is True
+    assert args.domain_randomization is True
     args = parser.parse_args(["all", "--gen0-source", "attributes", "--variants-per-archetype", "2"])
     assert args.gen0_source == "attributes"
