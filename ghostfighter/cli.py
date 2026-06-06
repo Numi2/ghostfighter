@@ -14,6 +14,16 @@ def positive_int(value: str) -> int:
     return ivalue
 
 
+def positive_int_list(value: str) -> list[int]:
+    try:
+        values = [positive_int(part.strip()) for part in value.split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a comma-separated list of positive integers") from exc
+    if not values:
+        raise argparse.ArgumentTypeError("must include at least one positive integer")
+    return values
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ghostfighter",
@@ -72,6 +82,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-steps", type=positive_int, default=80)
     p.add_argument("--suite", choices=["standard", "stress", "adversarial", "regression", "all"], default="regression")
 
+    p = sub.add_parser("scale-study", help="Train/evaluate growing data budgets to show self-improvement and scaling.")
+    p.add_argument("--out", default="runs/default/scaling")
+    p.add_argument("--episodes-schedule", type=positive_int_list, default=[8, 16, 32])
+    p.add_argument("--epochs", type=positive_int, default=3)
+    p.add_argument("--eval-episodes", type=positive_int, default=24)
+    p.add_argument("--seed", type=int, default=1201)
+    p.add_argument("--max-steps", type=positive_int, default=90)
+    p.add_argument("--batch-size", type=positive_int, default=1024)
+    p.add_argument("--hidden", type=positive_int, default=128)
+
     p = sub.add_parser("all", help="Run the complete pipeline.")
     p.add_argument("--out", default="runs/default")
     p.add_argument("--episodes-per-style", type=positive_int, default=80)
@@ -83,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--demo-style", choices=STYLE_NAMES, default="pressure")
     p.add_argument("--stress", action="store_true", help="Include hardware-stress evaluation modes.")
     p.add_argument("--benchmark", action="store_true", help="Run scenario benchmark, safety dashboard, safety case, and model card.")
+    p.add_argument("--scale-study", action="store_true", help="Run a data-scaling self-improvement study.")
     return parser
 
 
@@ -150,6 +171,23 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result["summary"], indent=2))
         return 0
 
+    if args.command == "scale-study":
+        from .improve import run_scale_study
+
+        result = run_scale_study(
+            args.out,
+            episode_schedule=args.episodes_schedule,
+            epochs=args.epochs,
+            eval_episodes=args.eval_episodes,
+            seed=args.seed,
+            max_steps=args.max_steps,
+            batch_size=args.batch_size,
+            hidden=args.hidden,
+            verbose=True,
+        )
+        print(json.dumps(result["summary"], indent=2))
+        return 0
+
     if args.command == "all":
         from .dataset import generate_trace_dataset
         from .evaluate import evaluate_policy, evaluate_scripted_baseline
@@ -175,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.benchmark:
             from .evaluate import run_scenario_suite
 
-            print("[5/8] running scenario benchmark", flush=True)
+            total_steps = 9 if args.scale_study else 8
+            print(f"[5/{total_steps}] running scenario benchmark", flush=True)
             benchmark_result = run_scenario_suite(
                 train_result["model_path"],
                 report_dir,
@@ -186,17 +225,66 @@ def main(argv: list[str] | None = None) -> int:
                 verbose=True,
             )
             print(json.dumps(benchmark_result["summary"], indent=2), flush=True)
-            print("[6/8] rendering dashboards and demo", flush=True)
+            if args.scale_study:
+                from .improve import run_scale_study
+
+                print(f"[6/{total_steps}] running self-improvement scale study", flush=True)
+                scale_result = run_scale_study(
+                    run_dir / "scaling",
+                    episode_schedule=[
+                        max(2, args.episodes_per_style // 10),
+                        max(4, args.episodes_per_style // 5),
+                        max(8, args.episodes_per_style // 2),
+                    ],
+                    epochs=max(2, args.epochs // 2),
+                    eval_episodes=max(16, args.eval_episodes // 4),
+                    seed=args.seed + 6,
+                    max_steps=max(60, args.max_steps // 2),
+                    batch_size=args.batch_size,
+                    hidden=128,
+                    verbose=True,
+                )
+                print(json.dumps(scale_result["summary"], indent=2), flush=True)
+                print(f"[7/{total_steps}] rendering dashboards and demo", flush=True)
+            else:
+                scale_result = None
+                print("[6/8] rendering dashboards and demo", flush=True)
         else:
-            print("[5/6] rendering dashboard and demo", flush=True)
+            if args.scale_study:
+                from .improve import run_scale_study
+
+                print("[5/8] running self-improvement scale study", flush=True)
+                scale_result = run_scale_study(
+                    run_dir / "scaling",
+                    episode_schedule=[
+                        max(2, args.episodes_per_style // 10),
+                        max(4, args.episodes_per_style // 5),
+                        max(8, args.episodes_per_style // 2),
+                    ],
+                    epochs=max(2, args.epochs // 2),
+                    eval_episodes=max(16, args.eval_episodes // 4),
+                    seed=args.seed + 6,
+                    max_steps=max(60, args.max_steps // 2),
+                    batch_size=args.batch_size,
+                    hidden=128,
+                    verbose=True,
+                )
+                print(json.dumps(scale_result["summary"], indent=2), flush=True)
+                print("[6/8] rendering dashboard and demo", flush=True)
+            else:
+                scale_result = None
+                print("[5/6] rendering dashboard and demo", flush=True)
         dashboard_path = make_dashboard(report_dir)
         safety_dashboard_path = make_safety_dashboard(report_dir) if args.benchmark else None
         style_id = STYLE_NAMES.index(args.demo_style)
         gif_path = make_demo_gif(train_result["model_path"], video_path, style_id=style_id, seed=args.seed + 4, max_steps=min(120, args.max_steps))
-        if args.benchmark:
-            print("[7/8] writing model card", flush=True)
+        if args.benchmark or args.scale_study:
+            total_steps = 9 if args.scale_study else 8
+            if args.scale_study and not args.benchmark:
+                total_steps = 8
+            print(f"[{total_steps - 1}/{total_steps}] writing model card", flush=True)
             model_card_path = write_model_card(run_dir)
-            print("[8/8] writing run card", flush=True)
+            print(f"[{total_steps}/{total_steps}] writing run card", flush=True)
         else:
             model_card_path = None
             print("[6/6] writing run card", flush=True)

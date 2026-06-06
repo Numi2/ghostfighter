@@ -4,6 +4,7 @@ from ghostfighter.dataset import generate_trace_dataset
 from ghostfighter.train import train_behavior_cloning
 from ghostfighter.config import TrainConfig
 from ghostfighter.evaluate import evaluate_policy, run_safety_threshold_sweep, run_scenario_suite
+from ghostfighter.improve import run_scale_study
 from ghostfighter.render import make_safety_dashboard
 from ghostfighter.cli import build_parser
 
@@ -43,6 +44,25 @@ def test_safety_threshold_sweep_recommends_candidate(tmp_path: Path):
     assert (tmp_path / "reports" / "safety_tuning.csv").exists()
 
 
+def test_tiny_scale_study_outputs(tmp_path: Path):
+    result = run_scale_study(
+        tmp_path / "scaling",
+        episode_schedule=(1, 2),
+        epochs=1,
+        eval_episodes=4,
+        seed=379,
+        max_steps=25,
+        batch_size=64,
+        hidden=48,
+    )
+    assert result["summary"]["generations"] == 2
+    assert result["summary"]["sample_scale"] > 1.0
+    assert (tmp_path / "scaling" / "scaling_study.csv").exists()
+    assert (tmp_path / "scaling" / "scaling_study.json").exists()
+    assert (tmp_path / "scaling" / "scaling_dashboard.png").exists()
+    assert (tmp_path / "scaling" / "LEARNING_CASE.md").exists()
+
+
 def test_cli_accepts_benchmark_options():
     parser = build_parser()
     args = parser.parse_args(["benchmark", "--suite", "regression", "--episodes", "4"])
@@ -50,6 +70,11 @@ def test_cli_accepts_benchmark_options():
     assert args.suite == "regression"
     args = parser.parse_args(["tune-safety", "--suite", "regression", "--episodes", "4"])
     assert args.command == "tune-safety"
+    args = parser.parse_args(["scale-study", "--episodes-schedule", "1,2", "--epochs", "1"])
+    assert args.command == "scale-study"
+    assert args.episodes_schedule == [1, 2]
     args = parser.parse_args(["all", "--benchmark"])
     assert args.command == "all"
     assert args.benchmark is True
+    args = parser.parse_args(["all", "--scale-study"])
+    assert args.scale_study is True

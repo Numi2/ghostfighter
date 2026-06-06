@@ -340,6 +340,7 @@ def write_model_card(run_dir: str | Path) -> str:
     eval_summary = json.loads((run_dir / "reports" / "eval_summary.json").read_text()) if (run_dir / "reports" / "eval_summary.json").exists() else {}
     scenario_summary = json.loads((run_dir / "reports" / "scenario_summary.json").read_text()) if (run_dir / "reports" / "scenario_summary.json").exists() else {}
     safety_tuning = json.loads((run_dir / "reports" / "safety_tuning.json").read_text()) if (run_dir / "reports" / "safety_tuning.json").exists() else {}
+    scaling = json.loads((run_dir / "scaling" / "scaling_study.json").read_text()) if (run_dir / "scaling" / "scaling_study.json").exists() else {}
     text = f"""# GhostFighter Model Card
 
 ## Model
@@ -377,6 +378,12 @@ GhostFighter uses a conditional behavior-cloning policy. A single PyTorch networ
 {json.dumps(safety_tuning, indent=2)}
 ```
 
+## Scaling Study
+
+```json
+{json.dumps({k: v for k, v in scaling.items() if k != 'rows'}, indent=2)}
+```
+
 ## Intended Use And Limits
 
 This is a self-contained autonomy and safety architecture prototype for robot-combat policy development. It is not a hardware dynamics certificate. The simulator uses high-level skill tokens so reviewers can inspect the data flywheel, policy cloning, stress evaluation, and safety-firewall design without external robotics stacks.
@@ -400,6 +407,9 @@ def write_run_card(run_dir: str | Path) -> str:
         ("reports/replays/scenario_replays.json", "serialized replay bundle"),
         ("reports/safety_dashboard.png", "safety benchmark dashboard"),
         ("reports/safety_case.md", "explainable safety case"),
+        ("scaling/scaling_study.json", "self-improvement scaling summary"),
+        ("scaling/scaling_dashboard.png", "self-improvement scaling dashboard"),
+        ("scaling/LEARNING_CASE.md", "learning-over-time case"),
         ("MODEL_CARD.md", "model card"),
     ]:
         if (run_dir / rel).exists():

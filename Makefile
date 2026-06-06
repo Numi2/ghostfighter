@@ -1,4 +1,4 @@
-.PHONY: test smoke benchmark tune-safety reference data train evaluate dashboard demo
+.PHONY: test smoke benchmark tune-safety scale-study reference data train evaluate dashboard demo
 
 test:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
@@ -11,6 +11,9 @@ benchmark:
 
 tune-safety:
 	PYTHONPATH=. python -m ghostfighter.cli tune-safety --model runs/default/models/ghost_policy.pt --out runs/default/reports --suite regression --episodes 20
+
+scale-study:
+	PYTHONPATH=. python -m ghostfighter.cli scale-study --out runs/default/scaling --episodes-schedule 8,16,32 --epochs 3 --eval-episodes 24
 
 reference:
 	PYTHONPATH=. python -m ghostfighter.cli all --out runs/reference --episodes-per-style 60 --epochs 6 --eval-episodes 32 --max-steps 90 --stress

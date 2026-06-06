@@ -37,7 +37,7 @@ The project does not require MuJoCo, Isaac, ROS, or a GPU. It is intentionally s
 ## Run the complete pipeline
 
 ```bash
-python -m ghostfighter.cli all --out runs/default --episodes-per-style 80 --epochs 8 --eval-episodes 160 --stress --benchmark
+python -m ghostfighter.cli all --out runs/default --episodes-per-style 80 --epochs 8 --eval-episodes 160 --stress --benchmark --scale-study
 ```
 
 This creates:
@@ -62,6 +62,10 @@ runs/default/
   reports/safety_case.md
   videos/ghostfighter_demo.gif
   MODEL_CARD.md
+  scaling/scaling_study.csv
+  scaling/scaling_study.json
+  scaling/scaling_dashboard.png
+  scaling/LEARNING_CASE.md
   RUN_CARD.md
 ```
 
@@ -109,6 +113,12 @@ Tune the safety firewall threshold on deterministic scenarios:
 python -m ghostfighter.cli tune-safety --model runs/default/models/ghost_policy.pt --out runs/default/reports --suite regression --episodes 20
 ```
 
+Run the self-improvement scaling ladder:
+
+```bash
+python -m ghostfighter.cli scale-study --out runs/default/scaling --episodes-schedule 8,16,32 --epochs 3 --eval-episodes 24
+```
+
 Render a demo GIF:
 
 ```bash
@@ -149,6 +159,7 @@ GhostFighter demonstrates that operating model end to end.
 - Counterfactual replay analyzes overridden actions from the same simulator state and reports avoided falls, boundary losses, damage, and balance loss.
 - Serialized replay bundles capture representative benchmark fights step by step for inspection without rerunning the simulator.
 - The safety tuning loop sweeps firewall thresholds and recommends the best setting for the current policy under a fall-averse benchmark objective.
+- The scaling ladder trains multiple generations with growing trace budgets and reports whether imitation accuracy, stress behavior, and the combined research score improve as data increases.
 - Each full run writes a model card, run card, dashboard, safety dashboard, and safety case so results are inspectable without reading code first.
 
 ## Limits
