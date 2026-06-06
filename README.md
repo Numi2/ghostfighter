@@ -1,18 +1,20 @@
 # GhostFighter
 
-GhostFighter is a small robot-combat autonomy lab: a fast humanoid fight simulator, configurable policy generation, PPO self-play, safety shielding, domain randomization, league analysis, robustness ablations, and replayable evidence.
+GhostFighter is a compact robot-combat autonomy lab. It provides a fast fight simulator, attribute-driven policy generation, PPO self-play, safety shielding, domain randomization, league analysis, robustness tests, dashboards, GIFs, and an offline HTML replay viewer.
 
-It is deliberately not a full rigid-body humanoid simulator. It studies the autonomy layer above motor control: how policies are generated, trained, stress-tested, selected, and explained.
+![GhostFighter demo fight](assets/ghostfighter_demo.gif)
 
-## Why It Stands Out
+The project is not trying to solve low-level humanoid motor control. It focuses on the decision layer above motor control: how a robot policy chooses tactics, responds under pressure, handles degraded state, gets evaluated, and produces evidence that a reviewer can inspect.
 
-- **Generation Zero without scripts:** users define policy attributes; GhostFighter samples randomized policy variants and logs rollouts.
-- **Real self-play loop:** PPO actor-critic training against role-based and historical opponents.
-- **Vectorized local rollouts:** `train-rl --envs N` collects interleaved multi-env PPO data with trajectory-safe GAE.
-- **Inspectable rewards:** PPO logs reward terms, KL, clip fraction, entropy, and explained variance.
-- **League theory:** empirical payoff matrix, replicator-dynamics meta-strategy, best response, and exploitability.
-- **Deployment guardrail:** `ppo_incumbent.pt` keeps the best retained checkpoint instead of blindly shipping the latest update.
-- **Robotics realism hooks:** domain randomization, safety firewall, robustness ablations, counterfactual safety replay, and offline replay viewer.
+The fighting-game inspiration is intentional. A robot policy can look like a fighting style from the outside: pressure-heavy, evasive, defensive, counter-oriented, or recovery-focused. In GhostFighter those are not hard-coded identities. They are policy attributes, rollout generators, opponent roles, and training/evaluation conditions that make behavior measurable.
+
+## What The System Does
+
+1. Generates Generation Zero rollout data from user-specified policy attributes.
+2. Trains conditional policies and PPO self-play agents from simulated fights.
+3. Runs raw-vs-shielded evaluation with a combat safety firewall.
+4. Stress-tests policies under actuator damage, low balance, boundary pressure, perturbations, and randomized domain conditions.
+5. Produces reviewer artifacts: model cards, run cards, dashboards, benchmark reports, replay JSON, GIF demos, and an interactive HTML fight viewer.
 
 ## Install
 
@@ -27,6 +29,12 @@ No MuJoCo, Isaac, ROS, or GPU is required for the local backend.
 
 ## Run The Lab
 
+Fast smoke test:
+
+```bash
+make smoke
+```
+
 Full review run:
 
 ```bash
@@ -34,12 +42,6 @@ python -m ghostfighter.cli all --out runs/default \
   --episodes-per-style 80 --epochs 8 --eval-episodes 160 \
   --stress --benchmark --scale-study --self-play --rl \
   --robustness --replay-viewer --domain-randomization
-```
-
-Fast smoke:
-
-```bash
-make smoke
 ```
 
 PPO self-play with vectorized local rollouts:
@@ -65,39 +67,56 @@ python -m ghostfighter.cli replay-viewer \
   --out runs/default/replay
 ```
 
-## Artifacts Worth Opening
+## Core Concepts
+
+**Policy attributes:** Generation Zero starts from configurable behavior parameters such as engagement drive, guard discipline, counter timing, lateral mobility, stamina discipline, boundary awareness, damage targeting, risk tolerance, and close-range pressure. These attributes create diverse rollout data without relying on one fixed scripted teacher.
+
+**Self-play league:** PPO agents train against role-based and historical opponents. Training logs include reward terms, KL, clip fraction, entropy, explained variance, Elo-style ratings, payoff matrices, meta-strategies, best responses, and exploitability estimates.
+
+**Safety firewall:** The firewall evaluates proposed actions before execution and can replace risky moves. It uses balance, stamina, boundary pressure, actuator damage, cooldown state, momentum, incoming contact, and likely whiffs. Evaluation compares raw policy behavior against shielded behavior.
+
+**Deployment incumbent:** Training does not automatically ship the latest PPO checkpoint. GhostFighter keeps a retained incumbent checkpoint selected by a conservative deployment score that accounts for Elo, win rate, and fall rate.
+
+**Replay evidence:** The HTML viewer is a standalone fight analysis console. It shows the arena, actions, reward trace, event markers, health, balance, stamina, damage, range, edge clearance, domain profile, keyboard playback, and PNG snapshot export.
+
+## Artifacts To Inspect
 
 ```text
 runs/default/
-  rl/ppo_training_curve.csv      # PPO loss, KL, entropy, explained variance
-  rl/ppo_reward_terms.csv        # decomposed reward terms
-  rl/payoff_matrix.csv           # empirical league payoffs
-  rl/meta_strategy.csv           # replicator-dynamics strategy
-  rl/LEAGUE_ANALYSIS.md          # exploitability and best response
-  rl/ppo_incumbent.pt            # best retained deployment checkpoint
-  rl/INCUMBENT.md                # why that checkpoint was selected
+  data/traces.npz
+  data/traces.summary.json
+  gen0/GENERATION_ZERO_CARD.md
+  selfplay/SELF_PLAY_CARD.md
+  rl/ppo_policy.pt
+  rl/ppo_incumbent.pt
+  rl/ppo_training_curve.csv
+  rl/ppo_reward_terms.csv
+  rl/payoff_matrix.csv
+  rl/meta_strategy.csv
+  rl/LEAGUE_ANALYSIS.md
+  rl/INCUMBENT.md
   robustness/ROBUSTNESS_REPORT.md
+  replay/replay.json
   replay/replay_viewer.html
+  reports/dashboard.png
+  reports/safety_dashboard.png
   reports/safety_case.md
+  videos/ghostfighter_demo.gif
   MODEL_CARD.md
   RUN_CARD.md
 ```
 
-## Algorithmic Core
+## Simulator Surface
 
-The simulator exposes high-level humanoid skill tokens:
+The local simulator exposes high-level humanoid combat actions:
 
 ```text
 guard, step_forward, step_back, sidestep_left, sidestep_right,
 circle_left, circle_right, jab, cross, hook, low_kick, push, recover
 ```
 
-Generation Zero creates behavior priors from attributes like engagement drive, guard discipline, counter timing, lateral mobility, stamina discipline, boundary awareness, damage targeting, risk tolerance, and close-range pressure.
-
-PPO self-play then learns from match rewards. Rollouts can be collected across multiple local environments; advantages are computed per trajectory, not across interleaved env steps. Each update is evaluated against a population, added to the historical opponent league, and compared against the deployment incumbent.
-
-The league report is intentionally more than Elo: it estimates a meta-strategy from the payoff matrix and reports exploitability, which is the closest this compact project gets to “is this policy strategically robust?”
+It tracks ring position, heading, stamina, guard, balance, health, knockdowns, actuator damage, cooldowns, contact events, scoring, and match termination. This keeps the project small enough to run quickly while still exercising autonomy problems that matter: tactical choice, safety intervention, recovery, robustness, and evaluation discipline.
 
 ## Scale Path
 
-The local backend is for iteration, CI, and review. The interfaces are shaped so the same policy roles, domain-randomization profile, PPO loop, and failure/replay artifacts can move to Isaac Lab for massive vectorized rollout generation and MuJoCo for higher-fidelity validation.
+The local backend is for iteration, CI, and review. The interfaces are shaped so the same policy roles, domain-randomization profiles, PPO loop, and failure/replay artifacts can move to Isaac Lab for massive vectorized rollout generation and MuJoCo for higher-fidelity validation.
