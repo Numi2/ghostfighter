@@ -64,7 +64,7 @@ app.innerHTML = `
       <div class="topbar">
         <div>
           <h1>GhostFighter Arena</h1>
-          <p>Browser PvP robot combat with trainable policy ghosts. Play same-keyboard, run bot leagues, export a model DNA string, and challenge imported bots.</p>
+          <p>Autonomous robot-combat policies fight in the browser. Watch trained ghosts, evolve your own policy, then challenge other policies and players worldwide.</p>
         </div>
         <div class="roundBox">
           <span>Round</span>
@@ -76,16 +76,25 @@ app.innerHTML = `
         <button id="start">Start</button>
         <button id="reset">Reset</button>
         <select id="mode" aria-label="Match mode">
-          <option value="pvp">Local PvP</option>
-          <option value="online">Online PvP</option>
-          <option value="humanBot">Human vs Bot</option>
-          <option value="botBot">Bot League</option>
+          <option value="botBot">Autonomous League</option>
+          <option value="humanBot">Human Override vs Bot</option>
+          <option value="pvp">Local Teleop PvP</option>
+          <option value="online">Online Teleop PvP</option>
         </select>
-        <div class="hint">P1 WASD · Guard Shift · J/K/L/Space. P2 arrows · Guard / · 1/2/3/0.</div>
+        <div class="hint" id="controlHint">Autonomous policies are driving. Use Start to run the league.</div>
       </div>
     </section>
     <aside class="sidePanel">
-      <section>
+      <section class="guidePanel">
+        <h2>Start Here</h2>
+        <div class="stepTabs" role="tablist" aria-label="GhostFighter workflow">
+          <button id="stepPlay" class="activeStep" type="button">1. Watch Autonomy</button>
+          <button id="stepTrain" type="button">2. Train Policy</button>
+          <button id="stepOnline" type="button">3. Challenge</button>
+        </div>
+        <p id="stepCopy" class="panelNote">Press Start to watch two autonomous policies fight. Manual controls are optional teleoperation modes, not the core autonomy loop.</p>
+      </section>
+      <section class="alwaysPanel">
         <h2>Match Telemetry</h2>
         <div class="metrics">
           <div><span>Range</span><strong id="range">0.00m</strong></div>
@@ -94,15 +103,15 @@ app.innerHTML = `
           <div><span>Winner</span><strong id="winner">active</strong></div>
         </div>
       </section>
-      <section>
+      <section class="alwaysPanel">
         <h2>Red Pilot</h2>
         <div id="redBars" class="bars"></div>
       </section>
-      <section>
+      <section class="alwaysPanel">
         <h2>Blue Pilot</h2>
         <div id="blueBars" class="bars"></div>
       </section>
-      <section>
+      <section data-workflow="online" class="workflowPanel hiddenPanel">
         <h2>Worldwide PvP</h2>
         <p class="panelNote">Host copies an invite to a friend. Guest pastes it, creates an answer, then host accepts that answer. After connect, host is red and guest is blue.</p>
         <div class="netGrid">
@@ -114,7 +123,7 @@ app.innerHTML = `
         <textarea id="netCode" spellcheck="false" aria-label="Online PvP invite and answer code"></textarea>
         <div id="netStatus" class="netStatus">offline</div>
       </section>
-      <section>
+      <section data-workflow="train" class="workflowPanel hiddenPanel">
         <h2>Train Your Ghost</h2>
         <p class="panelNote">Train evolves a compact policy genome in your browser. Export DNA or copy a challenge URL so other players can fight your ghost.</p>
         <div class="trainGrid">
@@ -126,7 +135,7 @@ app.innerHTML = `
         <button id="importBot">Import Blue Bot</button>
         <div id="botStats" class="botStats"></div>
       </section>
-      <section>
+      <section data-workflow="events" class="workflowPanel">
         <h2>Event Feed</h2>
         <div id="feed" class="feed"></div>
       </section>
@@ -149,6 +158,11 @@ const joinOfferButton = document.querySelector<HTMLButtonElement>("#joinOffer")!
 const acceptAnswerButton = document.querySelector<HTMLButtonElement>("#acceptAnswer")!;
 const disconnectButton = document.querySelector<HTMLButtonElement>("#disconnectNet")!;
 const netCode = document.querySelector<HTMLTextAreaElement>("#netCode")!;
+const stepPlayButton = document.querySelector<HTMLButtonElement>("#stepPlay")!;
+const stepOnlineButton = document.querySelector<HTMLButtonElement>("#stepOnline")!;
+const stepTrainButton = document.querySelector<HTMLButtonElement>("#stepTrain")!;
+const stepCopy = document.querySelector<HTMLParagraphElement>("#stepCopy")!;
+const controlHint = document.querySelector<HTMLDivElement>("#controlHint")!;
 const arenaRadius = 3.85;
 const events: HitEvent[] = [{ text: "Arena initialized. Choose a mode and start the round.", ttl: 5, kind: "round" }];
 const trailRed: Array<[number, number]> = [];
@@ -172,9 +186,38 @@ let peer: RTCPeerConnection | null = null;
 let channel: RTCDataChannel | null = null;
 let onlineConnected = false;
 let lastStateSent = 0;
+let activeWorkflow: "play" | "online" | "train" = "play";
 
 function makeControls(): Controls {
   return { up: false, down: false, left: false, right: false, guard: false, jab: false, cross: false, kick: false, push: false };
+}
+
+function setWorkflow(workflow: "play" | "online" | "train", forceDefault = false) {
+  activeWorkflow = workflow;
+  stepPlayButton.classList.toggle("activeStep", workflow === "play");
+  stepOnlineButton.classList.toggle("activeStep", workflow === "online");
+  stepTrainButton.classList.toggle("activeStep", workflow === "train");
+  document.querySelectorAll<HTMLElement>("[data-workflow]").forEach((panel) => {
+    const key = panel.dataset.workflow;
+    const visible = key === "events" || key === workflow;
+    panel.classList.toggle("hiddenPanel", !visible);
+  });
+  if (workflow === "play") {
+    stepCopy.textContent = "Press Start to watch two autonomous policies fight. This is the default robotics view: policies choose movement, guard, attacks, recovery, and safety behavior.";
+    controlHint.textContent = "Autonomous policies are driving. Use Start to run the league.";
+    if (forceDefault && modeSelect.value !== "botBot") modeSelect.value = "botBot";
+  }
+  if (workflow === "online") {
+    stepCopy.textContent = "Challenge another human in teleoperation mode or share trained policy ghosts. Online PvP is a control-layer test, not the main autonomy claim.";
+    controlHint.textContent = "Online teleop: host uses WASD/J/K/L/Space, guest uses arrows/1/2/3/0.";
+    if (forceDefault) modeSelect.value = "online";
+  }
+  if (workflow === "train") {
+    stepCopy.textContent = "Train a policy ghost in your browser, then export DNA or copy a challenge URL so other players can fight the autonomous model.";
+    controlHint.textContent = "Training mode: evolve a bot, then run Human Override vs Bot or share the challenge URL.";
+    if (forceDefault && modeSelect.value !== "humanBot") modeSelect.value = "humanBot";
+  }
+  updateHud();
 }
 
 function copyControls(source: Controls, target: Controls) {
@@ -873,8 +916,23 @@ resetButton.addEventListener("click", () => {
 });
 modeSelect.addEventListener("change", () => {
   if (modeSelect.value !== "online" && netRole !== "offline") disconnectOnline(false);
+  if (modeSelect.value === "online") setWorkflow("online");
+  else if (modeSelect.value === "humanBot") setWorkflow("train");
+  else setWorkflow("play");
   resetRound(true);
   updateHud();
+});
+stepPlayButton.addEventListener("click", () => {
+  setWorkflow("play", true);
+  resetRound(true);
+});
+stepOnlineButton.addEventListener("click", () => {
+  setWorkflow("online", true);
+  resetRound(true);
+});
+stepTrainButton.addEventListener("click", () => {
+  setWorkflow("train", true);
+  resetRound(true);
 });
 trainButton.addEventListener("click", trainChampion);
 exportButton.addEventListener("click", async () => {
@@ -907,6 +965,7 @@ importButton.addEventListener("click", () => {
   blueBot = imported;
   champion = imported;
   modeSelect.value = "humanBot";
+  setWorkflow("train");
   resetRound(true);
   events.unshift({ text: `Imported ${imported.name}. Fight it worldwide by sharing DNA.`, ttl: 5, kind: "train" });
 });
@@ -917,5 +976,6 @@ disconnectButton.addEventListener("click", () => disconnectOnline(true));
 
 botCode.value = encodeBot(champion);
 importFromUrl();
+setWorkflow(modeSelect.value === "online" ? "online" : modeSelect.value === "humanBot" ? "train" : "play", modeSelect.value === "botBot");
 draw();
 requestAnimationFrame(step);

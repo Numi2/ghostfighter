@@ -113,7 +113,7 @@ canvas {
 
 .controls {
   display: grid;
-  grid-template-columns: auto auto 170px 1fr;
+  grid-template-columns: auto auto minmax(230px, 260px) 1fr;
   gap: 12px;
   align-items: center;
   padding: 14px;
@@ -165,6 +165,34 @@ select:hover {
 .sidePanel section {
   border-radius: 8px;
   padding: 16px;
+}
+
+.guidePanel {
+  border-color: rgba(255, 191, 91, 0.48) !important;
+}
+
+.stepTabs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stepTabs button {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  background: #172232;
+}
+
+.stepTabs .activeStep {
+  border-color: rgba(255, 191, 91, 0.78);
+  background: linear-gradient(180deg, #34445a, #263447);
+  color: #fff5df;
+}
+
+.hiddenPanel {
+  display: none;
 }
 
 h2 {
