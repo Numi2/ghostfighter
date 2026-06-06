@@ -19,6 +19,8 @@ The goal is to make simulated fights become a robot-learning data flywheel: conf
 - Attribute-driven Generation Zero generator that samples randomized policy variants from user-defined behavior ranges.
 - Domain randomization for mass, inertia, friction, floor compliance, latency, motor strength, actuator delay, damping, sensor noise, restitution, battery sag, thermal limits, terrain, and external pushes.
 - Population-based self-play across `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist` roles with Elo-style ratings, exploitability, policy diversity, and failure-mode reports.
+- PPO actor-critic self-play trainer with historical opponent snapshots and league leaderboard artifacts.
+- Synchronous local vector environment API as the lightweight bridge toward Isaac Lab-style batched rollout collection.
 - Dataset generator that logs observations, actions, rewards, policy-condition ids, episode ids, fighter ids, policy ids, source ids, and attribute vectors.
 - Conditional PyTorch behavior-cloning policy that can execute different policy archetypes from the same network.
 - Combat safety firewall that estimates risk from balance, stamina, boundary pressure, actuator damage, cooldown state, momentum, incoming contact, and likely whiffs.
@@ -62,6 +64,12 @@ runs/default/
   selfplay/selfplay_dashboard.png
   selfplay/SELF_PLAY_CARD.md
   selfplay/DOMAIN_RANDOMIZATION_CARD.md
+  rl/ppo_policy.pt
+  rl/ppo_training_curve.csv
+  rl/ppo_summary.json
+  rl/leaderboard.csv
+  rl/LEADERBOARD.md
+  rl/RL_TRAINING_CARD.md
   backends/backend_scale_plan.json
   backends/BACKEND_SCALE_PLAN.md
   models/ghost_policy.pt
@@ -117,6 +125,12 @@ Run population self-play:
 
 ```bash
 python -m ghostfighter.cli self-play --out runs/default/selfplay --generations 3 --matches-per-pair 2 --variants-per-role 2
+```
+
+Train with PPO self-play:
+
+```bash
+python -m ghostfighter.cli train-rl --out runs/default/rl --updates 8 --matches-per-update 16 --max-steps 90
 ```
 
 Write the scale backend plan:
@@ -201,7 +215,7 @@ Generation Zero is attribute-driven. A user can define behavior ranges for each 
 
 The full spec also controls counter timing, lateral mobility, stamina discipline, boundary awareness, and damage targeting. The labels are fighting-inspired, but the generator is an industry-style policy prior: users specify behavior attributes, the system samples randomized policy variants, and the learned ghost policy trains from those rollouts.
 
-Self-play is separate from the bootstrap generator. GhostFighter maintains a population of adversarial policy roles: `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist`. They fight each other across generations, update Elo-style ratings, and report exploitability, policy diversity, and failure modes. That gives the project an adversarial curriculum signal instead of relying only on fixed teacher policies.
+Self-play is separate from the bootstrap generator. GhostFighter maintains a population of adversarial policy roles: `striker`, `defender`, `stabilizer`, `evasive_mover`, and `recovery_specialist`. They fight each other across generations, update Elo-style ratings, and report exploitability, policy diversity, and failure modes. The `train-rl` command goes further: it trains an actor-critic policy with PPO from match rewards, snapshots historical opponents, and writes a league leaderboard.
 
 Domain randomization can be enabled during rollouts. The compact backend projects robotics variables onto equivalent high-level effects: speed, damping, balance recovery, contact instability, sensor noise, battery/thermal derating, terrain disturbance, and external pushes. The same profile schema is designed to map to Isaac Lab for vectorized GPU rollouts and MuJoCo for higher-fidelity validation when those external stacks are available.
 
@@ -223,6 +237,7 @@ GhostFighter demonstrates that operating model end to end.
 - The scaling ladder trains multiple generations with growing trace budgets and reports whether imitation accuracy, stress behavior, and the combined research score improve as data increases.
 - Generation Zero data is created from user-specified policy attributes, so the starting corpus is configurable and randomized rather than hardcoded to one set of scripts.
 - Population self-play reports Elo-style ratings, exploitability gaps, Jensen-Shannon policy diversity, and failure modes across adversarial roles.
+- PPO self-play produces policy checkpoints, training curves, historical-opponent league matches, and a leaderboard.
 - Domain-randomized rollouts exercise standard sim-to-real variables and write a dedicated card describing the sampled ranges.
 - Each full run writes a model card, run card, dashboard, safety dashboard, and safety case so results are inspectable without reading code first.
 

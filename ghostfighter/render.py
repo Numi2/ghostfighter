@@ -343,6 +343,7 @@ def write_model_card(run_dir: str | Path) -> str:
     safety_tuning = json.loads((run_dir / "reports" / "safety_tuning.json").read_text()) if (run_dir / "reports" / "safety_tuning.json").exists() else {}
     scaling = json.loads((run_dir / "scaling" / "scaling_study.json").read_text()) if (run_dir / "scaling" / "scaling_study.json").exists() else {}
     selfplay = json.loads((run_dir / "selfplay" / "selfplay_summary.json").read_text()) if (run_dir / "selfplay" / "selfplay_summary.json").exists() else {}
+    rl = json.loads((run_dir / "rl" / "ppo_summary.json").read_text()) if (run_dir / "rl" / "ppo_summary.json").exists() else {}
     text = f"""# GhostFighter Model Card
 
 ## Model
@@ -397,6 +398,12 @@ Generation Zero is created from user-configurable policy attributes rather than 
 {json.dumps(selfplay, indent=2)}
 ```
 
+## PPO Self-Play Training
+
+```json
+{json.dumps(rl, indent=2)}
+```
+
 ## Scaling Study
 
 ```json
@@ -440,6 +447,13 @@ def write_run_card(run_dir: str | Path) -> str:
         ("selfplay/selfplay_dashboard.png", "self-play dashboard"),
         ("selfplay/SELF_PLAY_CARD.md", "population self-play card"),
         ("selfplay/DOMAIN_RANDOMIZATION_CARD.md", "self-play domain-randomization card"),
+        ("rl/ppo_policy.pt", "PPO-trained actor-critic policy"),
+        ("rl/ppo_training_curve.csv", "PPO self-play learning curve"),
+        ("rl/ppo_summary.json", "PPO self-play training summary"),
+        ("rl/leaderboard.csv", "PPO league leaderboard"),
+        ("rl/LEADERBOARD.md", "PPO league leaderboard report"),
+        ("rl/league_matches.csv", "PPO league match table"),
+        ("rl/RL_TRAINING_CARD.md", "PPO self-play training card"),
         ("backends/backend_scale_plan.json", "backend rollout-scale target mapping"),
         ("backends/BACKEND_SCALE_PLAN.md", "Isaac Lab and MuJoCo scale plan"),
         ("scaling/scaling_study.json", "self-improvement scaling summary"),

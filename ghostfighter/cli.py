@@ -117,6 +117,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--domain-randomization", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--domain-intensity", type=float, default=0.55)
 
+    p = sub.add_parser("train-rl", help="Train an actor-critic policy with PPO self-play.")
+    p.add_argument("--out", default="runs/default/rl")
+    p.add_argument("--updates", type=positive_int, default=4)
+    p.add_argument("--matches-per-update", type=positive_int, default=8)
+    p.add_argument("--max-steps", type=positive_int, default=80)
+    p.add_argument("--epochs", type=positive_int, default=3)
+    p.add_argument("--batch-size", type=positive_int, default=512)
+    p.add_argument("--hidden", type=positive_int, default=128)
+    p.add_argument("--seed", type=int, default=1801)
+    p.add_argument("--domain-randomization", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--domain-intensity", type=float, default=0.45)
+
     p = sub.add_parser("scale-plan", help="Write the Isaac Lab/MuJoCo rollout-scale backend plan.")
     p.add_argument("--out", default="runs/default/backends")
 
@@ -138,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--benchmark", action="store_true", help="Run scenario benchmark, safety dashboard, safety case, and model card.")
     p.add_argument("--scale-study", action="store_true", help="Run a data-scaling self-improvement study.")
     p.add_argument("--self-play", action="store_true", help="Run population self-play and write Elo/diversity/failure-mode artifacts.")
+    p.add_argument("--rl", action="store_true", help="Run PPO self-play training and league leaderboard artifacts.")
     return parser
 
 
@@ -266,6 +279,27 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result["summary"], indent=2))
         return 0
 
+    if args.command == "train-rl":
+        from .rl import PPOConfig, train_ppo_self_play
+
+        result = train_ppo_self_play(
+            args.out,
+            config=PPOConfig(
+                updates=args.updates,
+                matches_per_update=args.matches_per_update,
+                max_steps=args.max_steps,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                hidden=args.hidden,
+                seed=args.seed,
+                domain_randomization=args.domain_randomization,
+                domain_intensity=args.domain_intensity,
+            ),
+            verbose=True,
+        )
+        print(json.dumps(result["summary"], indent=2))
+        return 0
+
     if args.command == "scale-plan":
         from .backends import write_backend_scale_plan
 
@@ -308,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.benchmark:
             from .evaluate import run_scenario_suite
 
-            total_steps = 10 if args.scale_study or args.self_play else 8
+            total_steps = 11 if args.scale_study or args.self_play or args.rl else 8
             print(f"[5/{total_steps}] running scenario benchmark", flush=True)
             benchmark_result = run_scenario_suite(
                 train_result["model_path"],
@@ -340,6 +374,29 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 selfplay_result = None
                 next_step = 6
+            if args.rl:
+                from .rl import PPOConfig, train_ppo_self_play
+
+                print(f"[{next_step}/{total_steps}] running PPO self-play training", flush=True)
+                rl_result = train_ppo_self_play(
+                    run_dir / "rl",
+                    config=PPOConfig(
+                        updates=3,
+                        matches_per_update=6,
+                        max_steps=max(50, args.max_steps // 2),
+                        epochs=max(2, args.epochs // 3),
+                        batch_size=min(args.batch_size, 1024),
+                        hidden=128,
+                        seed=args.seed + 8,
+                        domain_randomization=True,
+                        domain_intensity=0.45,
+                    ),
+                    verbose=True,
+                )
+                print(json.dumps(rl_result["summary"], indent=2), flush=True)
+                next_step += 1
+            else:
+                rl_result = None
             if args.scale_study:
                 from .improve import run_scale_study
 
@@ -385,6 +442,29 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 selfplay_result = None
                 after_selfplay_step = 5
+            if args.rl:
+                from .rl import PPOConfig, train_ppo_self_play
+
+                print(f"[{after_selfplay_step}/9] running PPO self-play training", flush=True)
+                rl_result = train_ppo_self_play(
+                    run_dir / "rl",
+                    config=PPOConfig(
+                        updates=3,
+                        matches_per_update=6,
+                        max_steps=max(50, args.max_steps // 2),
+                        epochs=max(2, args.epochs // 3),
+                        batch_size=min(args.batch_size, 1024),
+                        hidden=128,
+                        seed=args.seed + 8,
+                        domain_randomization=True,
+                        domain_intensity=0.45,
+                    ),
+                    verbose=True,
+                )
+                print(json.dumps(rl_result["summary"], indent=2), flush=True)
+                after_selfplay_step += 1
+            else:
+                rl_result = None
             if args.scale_study:
                 from .improve import run_scale_study
 

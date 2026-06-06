@@ -59,6 +59,12 @@ The self-play module keeps a population of adversarial policy roles: striker, de
 
 The runner records match tables, population ratings, Elo-style score updates, exploitability gaps, Jensen-Shannon action-diversity estimates, and failure modes such as falls, boundary losses, low-stamina finishes, and KO losses.
 
+## PPO self-play training
+
+The `train-rl` command trains an actor-critic policy with PPO. Rollouts are collected against a mixture of role-based opponents and frozen historical policy snapshots. Each update writes learning metrics, periodic checkpoints, league matches, and a leaderboard.
+
+This is the first project layer where policy behavior changes from adversarial experience instead of only imitating Generation Zero traces.
+
 ## Domain randomization
 
 Domain randomization samples mass, inertia, friction, floor compliance, latency, motor strength, actuator delay, joint damping, IMU noise, encoder noise, contact restitution, battery voltage sag, thermal limits, terrain roughness, and external pushes.

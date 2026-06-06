@@ -9,6 +9,8 @@ from ghostfighter.evaluate import evaluate_policy, run_safety_threshold_sweep, r
 from ghostfighter.improve import run_scale_study
 from ghostfighter.render import make_safety_dashboard
 from ghostfighter.selfplay import run_population_self_play
+from ghostfighter.rl import PPOConfig, train_ppo_self_play
+from ghostfighter.vector_env import SyncVectorFightEnv
 from ghostfighter.cli import build_parser
 
 
@@ -85,6 +87,37 @@ def test_tiny_selfplay_outputs_population_metrics(tmp_path: Path):
     assert (tmp_path / "selfplay" / "DOMAIN_RANDOMIZATION_CARD.md").exists()
 
 
+def test_sync_vector_env_steps_batch():
+    env = SyncVectorFightEnv(num_envs=3, seed=123)
+    red, blue = env.reset(randomize=False)
+    assert red.shape[0] == 3
+    step = env.step([0, 1, 2], [0, 1, 2])
+    assert step.obs_red.shape[0] == 3
+    assert step.reward_red.shape == (3,)
+
+
+def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
+    result = train_ppo_self_play(
+        tmp_path / "rl",
+        config=PPOConfig(
+            updates=1,
+            matches_per_update=2,
+            max_steps=20,
+            epochs=1,
+            batch_size=64,
+            hidden=48,
+            seed=191,
+            domain_randomization=False,
+        ),
+    )
+    assert result["summary"]["updates"] == 1
+    assert Path(result["model_path"]).exists()
+    assert (tmp_path / "rl" / "ppo_training_curve.csv").exists()
+    assert (tmp_path / "rl" / "leaderboard.csv").exists()
+    assert (tmp_path / "rl" / "LEADERBOARD.md").exists()
+    assert (tmp_path / "rl" / "RL_TRAINING_CARD.md").exists()
+
+
 def test_tiny_benchmark_outputs(tmp_path: Path):
     data = tmp_path / "traces.npz"
     generate_trace_dataset(data, episodes_per_style=1, seed=177, max_steps=25)
@@ -138,6 +171,8 @@ def test_cli_accepts_benchmark_options():
     assert args.command == "forge-zero"
     args = parser.parse_args(["self-play", "--generations", "1", "--matches-per-pair", "1"])
     assert args.command == "self-play"
+    args = parser.parse_args(["train-rl", "--updates", "1", "--matches-per-update", "2"])
+    assert args.command == "train-rl"
     args = parser.parse_args(["scale-plan"])
     assert args.command == "scale-plan"
     args = parser.parse_args(["benchmark", "--suite", "regression", "--episodes", "4"])
@@ -156,5 +191,7 @@ def test_cli_accepts_benchmark_options():
     args = parser.parse_args(["all", "--self-play", "--domain-randomization"])
     assert args.self_play is True
     assert args.domain_randomization is True
+    args = parser.parse_args(["all", "--rl"])
+    assert args.rl is True
     args = parser.parse_args(["all", "--gen0-source", "attributes", "--variants-per-archetype", "2"])
     assert args.gen0_source == "attributes"
