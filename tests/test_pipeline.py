@@ -1,8 +1,10 @@
 from pathlib import Path
 
 from ghostfighter.dataset import generate_trace_dataset
+from ghostfighter.attributes import AttributePolicy, load_policy_spec, sample_attribute_policies
 from ghostfighter.train import train_behavior_cloning
 from ghostfighter.config import TrainConfig
+from ghostfighter.env import FightEnv
 from ghostfighter.evaluate import evaluate_policy, run_safety_threshold_sweep, run_scenario_suite
 from ghostfighter.improve import run_scale_study
 from ghostfighter.render import make_safety_dashboard
@@ -18,6 +20,30 @@ def test_small_pipeline_runs(tmp_path: Path):
     result = evaluate_policy(train["model_path"], tmp_path / "reports", episodes=4, seed=79, max_steps=30)
     assert "summary" in result
     assert (tmp_path / "reports" / "match_results.csv").exists()
+
+
+def test_attribute_policy_spec_and_sampling_are_deterministic():
+    spec = load_policy_spec()
+    a = sample_attribute_policies(spec, variants_per_archetype=2, seed=11)
+    b = sample_attribute_policies(spec, variants_per_archetype=2, seed=11)
+    assert [p.vector().tolist() for p in a] == [p.vector().tolist() for p in b]
+    assert len(a) == 8
+    env = FightEnv(seed=12)
+    obs0, _ = env.reset(randomize=False)
+    action = AttributePolicy(a[0]).select_action(obs0, env, 0)
+    assert isinstance(action, int)
+
+
+def test_attribute_dataset_outputs_gen0_artifacts(tmp_path: Path):
+    data = tmp_path / "run" / "data" / "traces.npz"
+    summary = generate_trace_dataset(data, episodes_per_style=1, seed=55, max_steps=20, source="attributes", variants_per_archetype=2)
+    assert summary["source"] == "attributes"
+    assert summary["policy_variants"] == 8
+    assert (tmp_path / "run" / "gen0" / "policy_specs.resolved.json").exists()
+    assert (tmp_path / "run" / "gen0" / "policy_variants.csv").exists()
+    assert (tmp_path / "run" / "gen0" / "GENERATION_ZERO_CARD.md").exists()
+    train = train_behavior_cloning(data, tmp_path / "models", config=TrainConfig(epochs=1, batch_size=64, seed=56), hidden=48)
+    assert Path(train["model_path"]).exists()
 
 
 def test_tiny_benchmark_outputs(tmp_path: Path):
@@ -65,6 +91,10 @@ def test_tiny_scale_study_outputs(tmp_path: Path):
 
 def test_cli_accepts_benchmark_options():
     parser = build_parser()
+    args = parser.parse_args(["generate-data", "--source", "attributes", "--variants-per-archetype", "2"])
+    assert args.source == "attributes"
+    args = parser.parse_args(["forge-zero", "--variants-per-archetype", "2"])
+    assert args.command == "forge-zero"
     args = parser.parse_args(["benchmark", "--suite", "regression", "--episodes", "4"])
     assert args.command == "benchmark"
     assert args.suite == "regression"
@@ -78,3 +108,5 @@ def test_cli_accepts_benchmark_options():
     assert args.benchmark is True
     args = parser.parse_args(["all", "--scale-study"])
     assert args.scale_study is True
+    args = parser.parse_args(["all", "--gen0-source", "attributes", "--variants-per-archetype", "2"])
+    assert args.gen0_source == "attributes"

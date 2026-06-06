@@ -128,7 +128,7 @@ class FightEnv:
     The state uses approximate humanoid combat dynamics rather than raw torques:
     balance, cooldown, action range/cone, guard, boundary pressure, actuator damage,
     and knockdowns. It is built to test autonomy architecture quickly: data logging,
-    style cloning, safety filtering, and batch evaluation.
+    conditional policy learning, safety filtering, and batch evaluation.
     """
 
     metadata = {"obs_version": OBS_VERSION}

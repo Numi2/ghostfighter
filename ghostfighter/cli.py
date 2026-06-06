@@ -27,15 +27,26 @@ def positive_int_list(value: str) -> list[int]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ghostfighter",
-        description="Autonomous robot-combat style cloning with safety-firewall evaluation.",
+        description="Autonomous robot-combat policy learning with safety-firewall evaluation.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("generate-data", help="Generate scripted pilot traces.")
+    p = sub.add_parser("generate-data", help="Generate Generation Zero rollout traces.")
     p.add_argument("--out", default="runs/default/data/traces.npz")
     p.add_argument("--episodes-per-style", type=positive_int, default=80)
     p.add_argument("--seed", type=int, default=101)
     p.add_argument("--max-steps", type=positive_int, default=180)
+    p.add_argument("--source", choices=["attributes", "scripted"], default="attributes")
+    p.add_argument("--policy-spec", default=None)
+    p.add_argument("--variants-per-archetype", type=positive_int, default=8)
+
+    p = sub.add_parser("forge-zero", help="Generate attribute-driven Generation Zero policy data and artifacts.")
+    p.add_argument("--out", default="runs/default/data/traces.npz")
+    p.add_argument("--episodes-per-style", type=positive_int, default=80)
+    p.add_argument("--seed", type=int, default=101)
+    p.add_argument("--max-steps", type=positive_int, default=180)
+    p.add_argument("--policy-spec", default=None)
+    p.add_argument("--variants-per-archetype", type=positive_int, default=8)
 
     p = sub.add_parser("train", help="Train behavior-cloned ghost policy.")
     p.add_argument("--data", default="runs/default/data/traces.npz")
@@ -101,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=101)
     p.add_argument("--max-steps", type=positive_int, default=180)
     p.add_argument("--demo-style", choices=STYLE_NAMES, default="pressure")
+    p.add_argument("--gen0-source", choices=["attributes", "scripted"], default="attributes")
+    p.add_argument("--policy-spec", default=None)
+    p.add_argument("--variants-per-archetype", type=positive_int, default=8)
     p.add_argument("--stress", action="store_true", help="Include hardware-stress evaluation modes.")
     p.add_argument("--benchmark", action="store_true", help="Run scenario benchmark, safety dashboard, safety case, and model card.")
     p.add_argument("--scale-study", action="store_true", help="Run a data-scaling self-improvement study.")
@@ -114,7 +128,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "generate-data":
         from .dataset import generate_trace_dataset
 
-        summary = generate_trace_dataset(args.out, args.episodes_per_style, args.seed, max_steps=args.max_steps)
+        summary = generate_trace_dataset(
+            args.out,
+            args.episodes_per_style,
+            args.seed,
+            max_steps=args.max_steps,
+            source=args.source,
+            policy_spec=args.policy_spec,
+            variants_per_archetype=args.variants_per_archetype,
+        )
+        print(json.dumps(summary, indent=2))
+        return 0
+
+    if args.command == "forge-zero":
+        from .dataset import generate_trace_dataset
+
+        summary = generate_trace_dataset(
+            args.out,
+            args.episodes_per_style,
+            args.seed,
+            max_steps=args.max_steps,
+            source="attributes",
+            policy_spec=args.policy_spec,
+            variants_per_archetype=args.variants_per_archetype,
+        )
         print(json.dumps(summary, indent=2))
         return 0
 
@@ -199,8 +236,16 @@ def main(argv: list[str] | None = None) -> int:
         model_dir = run_dir / "models"
         report_dir = run_dir / "reports"
         video_path = run_dir / "videos" / "ghostfighter_demo.gif"
-        print("[1/6] generating pilot traces", flush=True)
-        data_summary = generate_trace_dataset(data_path, args.episodes_per_style, args.seed, max_steps=args.max_steps)
+        print(f"[1/6] generating Generation Zero traces ({args.gen0_source})", flush=True)
+        data_summary = generate_trace_dataset(
+            data_path,
+            args.episodes_per_style,
+            args.seed,
+            max_steps=args.max_steps,
+            source=args.gen0_source,
+            policy_spec=args.policy_spec,
+            variants_per_archetype=args.variants_per_archetype,
+        )
         print(json.dumps(data_summary, indent=2), flush=True)
         print("[2/6] training ghost policy", flush=True)
         train_result = train_behavior_cloning(data_path, model_dir, config=TrainConfig(epochs=args.epochs, batch_size=args.batch_size, seed=args.seed + 1), verbose=True)

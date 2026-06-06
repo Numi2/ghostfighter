@@ -1,0 +1,154 @@
+{
+  "pressure": {
+    "engagement_drive": [
+      0.72,
+      1.0
+    ],
+    "guard_discipline": [
+      0.25,
+      0.55
+    ],
+    "counter_timing": [
+      0.22,
+      0.55
+    ],
+    "lateral_mobility": [
+      0.25,
+      0.58
+    ],
+    "stamina_discipline": [
+      0.25,
+      0.62
+    ],
+    "boundary_awareness": [
+      0.38,
+      0.75
+    ],
+    "damage_targeting": [
+      0.45,
+      0.82
+    ],
+    "risk_tolerance": [
+      0.55,
+      0.9
+    ],
+    "close_range_pressure": [
+      0.52,
+      0.88
+    ]
+  },
+  "counter": {
+    "engagement_drive": [
+      0.35,
+      0.72
+    ],
+    "guard_discipline": [
+      0.62,
+      0.96
+    ],
+    "counter_timing": [
+      0.68,
+      1.0
+    ],
+    "lateral_mobility": [
+      0.3,
+      0.7
+    ],
+    "stamina_discipline": [
+      0.55,
+      0.92
+    ],
+    "boundary_awareness": [
+      0.52,
+      0.9
+    ],
+    "damage_targeting": [
+      0.42,
+      0.8
+    ],
+    "risk_tolerance": [
+      0.2,
+      0.56
+    ],
+    "close_range_pressure": [
+      0.25,
+      0.62
+    ]
+  },
+  "evasive": {
+    "engagement_drive": [
+      0.2,
+      0.55
+    ],
+    "guard_discipline": [
+      0.45,
+      0.82
+    ],
+    "counter_timing": [
+      0.4,
+      0.82
+    ],
+    "lateral_mobility": [
+      0.68,
+      1.0
+    ],
+    "stamina_discipline": [
+      0.62,
+      1.0
+    ],
+    "boundary_awareness": [
+      0.7,
+      1.0
+    ],
+    "damage_targeting": [
+      0.25,
+      0.62
+    ],
+    "risk_tolerance": [
+      0.12,
+      0.45
+    ],
+    "close_range_pressure": [
+      0.08,
+      0.42
+    ]
+  },
+  "bully": {
+    "engagement_drive": [
+      0.62,
+      0.95
+    ],
+    "guard_discipline": [
+      0.18,
+      0.52
+    ],
+    "counter_timing": [
+      0.18,
+      0.5
+    ],
+    "lateral_mobility": [
+      0.15,
+      0.52
+    ],
+    "stamina_discipline": [
+      0.18,
+      0.55
+    ],
+    "boundary_awareness": [
+      0.32,
+      0.72
+    ],
+    "damage_targeting": [
+      0.52,
+      0.92
+    ],
+    "risk_tolerance": [
+      0.58,
+      0.96
+    ],
+    "close_range_pressure": [
+      0.72,
+      1.0
+    ]
+  }
+}

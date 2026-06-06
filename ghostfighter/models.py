@@ -12,8 +12,8 @@ from .config import ACTION_NAMES, STYLE_NAMES
 class PolicyNet(nn.Module):
     """Conditional behavior-cloning policy.
 
-    The style id is embedded and concatenated to the simulator observation. The same
-    network can act as different ghost fighters: pressure, counter, evasive, or bully.
+    The policy-condition id is embedded and concatenated to the simulator observation.
+    The same network can act as different ghost fighters: pressure, counter, evasive, or bully.
     """
 
     def __init__(self, obs_dim: int, num_actions: int = len(ACTION_NAMES), num_styles: int = len(STYLE_NAMES), hidden: int = 192):

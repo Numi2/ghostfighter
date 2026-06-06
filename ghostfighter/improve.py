@@ -198,7 +198,7 @@ def write_learning_case(path: str | Path, summary: dict[str, object]) -> str:
     path = Path(path)
     text = f"""# GhostFighter Learning Case
 
-This artifact shows whether the robot-learning loop improves as the trace budget grows. Each generation regenerates pilot data at a larger scale, trains a fresh conditional ghost policy, evaluates raw/firewall behavior under stress, and tunes the safety threshold on deterministic regression scenarios.
+This artifact shows whether the robot-learning loop improves as the trace budget grows. Each generation regenerates Generation Zero data at a larger scale, trains a fresh conditional ghost policy, evaluates raw/firewall behavior under stress, and tunes the safety threshold on deterministic regression scenarios.
 
 ## Summary
 
@@ -208,7 +208,7 @@ This artifact shows whether the robot-learning loop improves as the trace budget
 
 ## Interpretation
 
-- `val_acc` measures imitation quality from pilot traces.
+- `val_acc` measures imitation quality from Generation Zero traces.
 - `firewall_stress_fall_rate` measures whether the learned policy remains usable under damaged/low-balance conditions.
 - `research_score` combines imitation quality, stress win rate, and a strong fall penalty.
 - `sample_scale` shows how much larger the final generation is than the first generation.

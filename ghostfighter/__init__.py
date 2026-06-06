@@ -1,4 +1,4 @@
-"""GhostFighter: autonomous robot-combat style cloning and safety gating."""
+"""GhostFighter: policy-conditioned robot combat autonomy and safety gating."""
 
 from .config import ACTION_NAMES, STYLE_NAMES, SimConfig
 from .env import FightEnv

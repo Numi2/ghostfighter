@@ -142,16 +142,16 @@ def make_demo_gif(
     frames: List[Image.Image] = []
 
     segments = []
-    # Segment 1: scripted pilot reference.
+    # Segment 1: Generation Zero policy reference.
     scripted = ScriptedPilot(style_name, seed=seed + 1)
     opponent = EnsembleOpponent(seed=seed + 2)
     res, trace = run_match(scripted, opponent, seed=seed + 3, style_name=style_name, mode="scripted_reference", max_steps=max_steps, collect_trace=True)
-    segments.append(("1. Pilot trace style", "scripted fighter behavior to clone", trace))
+    segments.append(("1. Generation Zero policy", "attribute-driven policy behavior used for rollouts", trace))
     # Segment 2: raw ghost.
     raw = NeuralGhostPolicy(model, style_id=style_id, deterministic=True)
     opponent = EnsembleOpponent(seed=seed + 20)
     res, trace = run_match(raw, opponent, seed=seed + 21, style_name=style_name, mode="ghost_raw", max_steps=max_steps, collect_trace=True)
-    segments.append(("2. Autonomous ghost", "policy cloned from pilot traces, no safety gate", trace))
+    segments.append(("2. Autonomous ghost", "policy learned from Generation Zero rollouts, no safety gate", trace))
     # Segment 3: safe ghost.
     safe = NeuralGhostPolicy(model, style_id=style_id, deterministic=True)
     opponent = EnsembleOpponent(seed=seed + 20)
@@ -336,6 +336,7 @@ def write_model_card(run_dir: str | Path) -> str:
     run_dir = Path(run_dir)
     card_path = run_dir / "MODEL_CARD.md"
     data_summary = json.loads((run_dir / "data" / "traces.summary.json").read_text()) if (run_dir / "data" / "traces.summary.json").exists() else {}
+    gen0_summary = json.loads((run_dir / "gen0" / "attribute_dataset_summary.json").read_text()) if (run_dir / "gen0" / "attribute_dataset_summary.json").exists() else {}
     train_metrics = json.loads((run_dir / "models" / "training_metrics.json").read_text()) if (run_dir / "models" / "training_metrics.json").exists() else {}
     eval_summary = json.loads((run_dir / "reports" / "eval_summary.json").read_text()) if (run_dir / "reports" / "eval_summary.json").exists() else {}
     scenario_summary = json.loads((run_dir / "reports" / "scenario_summary.json").read_text()) if (run_dir / "reports" / "scenario_summary.json").exists() else {}
@@ -345,14 +346,25 @@ def write_model_card(run_dir: str | Path) -> str:
 
 ## Model
 
-GhostFighter uses a conditional behavior-cloning policy. A single PyTorch network receives the combat observation plus a style embedding and predicts one high-level humanoid skill token.
+GhostFighter uses a conditional behavior-cloning policy. A single PyTorch network receives the combat observation plus a policy-condition embedding and predicts one high-level humanoid skill token.
 
 ## Training Data
 
+- Source: {data_summary.get('source', 'n/a')}
 - Episodes: {data_summary.get('episodes', 'n/a')}
 - Trace samples: {data_summary.get('samples', 'n/a')}
 - Observation dimension: {data_summary.get('obs_dim', 'n/a')}
-- Styles: {', '.join(STYLE_NAMES)}
+- Policy archetypes: {', '.join(STYLE_NAMES)}
+- Generation Zero variants: {data_summary.get('policy_variants', gen0_summary.get('policy_variants', 'n/a'))}
+- Action entropy: {data_summary.get('action_entropy', gen0_summary.get('action_entropy', 'n/a'))}
+
+## Generation Zero
+
+Generation Zero is created from user-configurable policy attributes rather than fixed scripted pilots. The user-facing archetypes keep fighting-genre language, but each row is a robotics-style behavior prior: engagement drive, guard discipline, counter timing, lateral mobility, stamina discipline, boundary awareness, damage targeting, risk tolerance, and close-range pressure.
+
+```json
+{json.dumps({k: v for k, v in gen0_summary.items() if k in ['source', 'policy_variants', 'episodes', 'samples', 'variant_episode_counts']}, indent=2)}
+```
 
 ## Training Metrics
 
@@ -386,7 +398,7 @@ GhostFighter uses a conditional behavior-cloning policy. A single PyTorch networ
 
 ## Intended Use And Limits
 
-This is a self-contained autonomy and safety architecture prototype for robot-combat policy development. It is not a hardware dynamics certificate. The simulator uses high-level skill tokens so reviewers can inspect the data flywheel, policy cloning, stress evaluation, and safety-firewall design without external robotics stacks.
+This is a self-contained autonomy and safety architecture prototype for robot-combat policy development. It is not a hardware dynamics certificate. The simulator uses high-level skill tokens so reviewers can inspect the policy-data flywheel, conditional policy learning, stress evaluation, and safety-firewall design without external robotics stacks.
 """
     card_path.write_text(text, encoding="utf-8")
     return str(card_path)
@@ -396,6 +408,7 @@ def write_run_card(run_dir: str | Path) -> str:
     run_dir = Path(run_dir)
     card_path = run_dir / "RUN_CARD.md"
     data_summary = json.loads((run_dir / "data" / "traces.summary.json").read_text()) if (run_dir / "data" / "traces.summary.json").exists() else {}
+    gen0_summary = json.loads((run_dir / "gen0" / "attribute_dataset_summary.json").read_text()) if (run_dir / "gen0" / "attribute_dataset_summary.json").exists() else {}
     train_metrics = json.loads((run_dir / "models" / "training_metrics.json").read_text()) if (run_dir / "models" / "training_metrics.json").exists() else {}
     eval_summary = json.loads((run_dir / "reports" / "eval_summary.json").read_text()) if (run_dir / "reports" / "eval_summary.json").exists() else {}
     scenario_summary = json.loads((run_dir / "reports" / "scenario_summary.json").read_text()) if (run_dir / "reports" / "scenario_summary.json").exists() else {}
@@ -407,6 +420,12 @@ def write_run_card(run_dir: str | Path) -> str:
         ("reports/replays/scenario_replays.json", "serialized replay bundle"),
         ("reports/safety_dashboard.png", "safety benchmark dashboard"),
         ("reports/safety_case.md", "explainable safety case"),
+        ("gen0/policy_specs.resolved.json", "resolved Generation Zero policy-attribute ranges"),
+        ("gen0/policy_variants.csv", "sampled Generation Zero policy variants"),
+        ("gen0/policy_variants.json", "sampled Generation Zero policy variants as JSON"),
+        ("gen0/attribute_dataset_summary.json", "Generation Zero dataset summary"),
+        ("gen0/attribute_dashboard.png", "Generation Zero attribute dashboard"),
+        ("gen0/GENERATION_ZERO_CARD.md", "Generation Zero provenance card"),
         ("scaling/scaling_study.json", "self-improvement scaling summary"),
         ("scaling/scaling_dashboard.png", "self-improvement scaling dashboard"),
         ("scaling/LEARNING_CASE.md", "learning-over-time case"),
@@ -417,13 +436,16 @@ def write_run_card(run_dir: str | Path) -> str:
     extra_text = "\n".join(extra_files)
     text = f"""# GhostFighter Run Card
 
-This run demonstrates the complete pipeline: pilot trace generation, conditional behavior cloning, autonomous match evaluation, safety-firewall ablation, dashboard generation, and demo rendering.
+This run demonstrates the complete pipeline: attribute-driven Generation Zero data, conditional policy learning, autonomous match evaluation, safety-firewall ablation, dashboard generation, and demo rendering.
 
 ## Data
 
+- Source: {data_summary.get('source', 'n/a')}
 - Trace samples: {data_summary.get('samples', 'n/a')}
 - Episodes: {data_summary.get('episodes', 'n/a')}
 - Observation dimension: {data_summary.get('obs_dim', 'n/a')}
+- Generation Zero variants: {data_summary.get('policy_variants', gen0_summary.get('policy_variants', 'n/a'))}
+- Action entropy: {data_summary.get('action_entropy', gen0_summary.get('action_entropy', 'n/a'))}
 
 ## Training
 
@@ -447,7 +469,7 @@ The central ablation is `raw` versus `firewall`. The raw ghost executes its chos
 
 ## Files
 
-- `data/traces.npz`: logged pilot traces
+- `data/traces.npz`: logged Generation Zero policy rollouts
 - `models/ghost_policy.pt`: trained conditional ghost policy
 - `models/training_curve.csv`: epoch metrics
 - `reports/match_results.csv`: per-match evaluation

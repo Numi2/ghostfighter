@@ -32,7 +32,7 @@ def train_behavior_cloning(
     hidden: int = 192,
     verbose: bool = False,
 ) -> Dict[str, object]:
-    """Train the conditional ghost policy from pilot traces."""
+    """Train the conditional ghost policy from Generation Zero traces."""
     config = config or TrainConfig()
     set_seeds(config.seed)
     out_dir = Path(out_dir)
