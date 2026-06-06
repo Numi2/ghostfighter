@@ -140,7 +140,7 @@ guard, step_forward, step_back, sidestep_left, sidestep_right,
 circle_left, circle_right, jab, cross, hook, low_kick, push, recover
 ```
 
-This is deliberate. A one-week project should not pretend to solve full humanoid motor control. It should prove the data, autonomy, evaluation, and safety architecture. The same structure could later sit above a lower-level MuJoCo, Isaac, Unitree, or real-robot controller.
+This is deliberate. GhostFighter focuses on the autonomy layer above motor control: data generation, style-conditioned policy learning, safety shielding, adversarial evaluation, replayable evidence, and scaling studies. The same architecture can sit above a lower-level MuJoCo, Isaac, Unitree, or real-robot controller when raw dynamics integration is the next target.
 
 The policy is conditional on style. A single network receives the current observation and a style id, then predicts the next high-level combat action. This creates a practical path from human/sim pilot traces to autonomous ghost fighters.
 

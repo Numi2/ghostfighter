@@ -79,4 +79,4 @@ Metrics include win rate, draw rate, fall rate, health margin, score margin, uns
 
 ## Review signal
 
-The project shows practical judgment: it does not claim to solve full humanoid dynamics in a week. It builds the part a robot-combat company will need to scale autonomy from simulator users: trace logging, style cloning, safety gating, batch policy evaluation, and reproducible reporting.
+The project shows practical judgment by separating autonomy research from low-level actuation. It builds the layer a robot-combat company needs to scale learning from simulator users: trace logging, style cloning, safety gating, batch policy evaluation, replayable evidence, self-improvement studies, and reproducible reporting.

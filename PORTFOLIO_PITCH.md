@@ -28,7 +28,7 @@ python -m ghostfighter.cli all --out runs/review --episodes-per-style 20 --epoch
 
 ## What to say in an interview
 
-The technical bet is that the industry’s simulator can become the training substrate for autonomous robot fighters. I did not try to fake low-level humanoid control in a week. I built the autonomy layer that would sit above low-level controllers: logging, conditional style cloning, batch evaluation, and pre-controller safety filtering.
+The technical bet is that the industry’s simulator can become the training substrate for autonomous robot fighters. GhostFighter builds the autonomy layer above low-level controllers: logging, conditional style cloning, batch evaluation, replayable safety evidence, self-improvement studies, and pre-controller safety filtering.
 
 The safety firewall is deliberately separate from the learned policy. The policy proposes intent. The firewall decides whether that intent is safe enough to execute in the current physical state.
 
