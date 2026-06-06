@@ -108,6 +108,7 @@ def test_tiny_ppo_selfplay_outputs_leaderboard(tmp_path: Path):
             epochs=1,
             batch_size=64,
             hidden=48,
+            envs=2,
             seed=191,
             domain_randomization=False,
         ),
@@ -207,6 +208,8 @@ def test_cli_accepts_benchmark_options():
     assert args.command == "self-play"
     args = parser.parse_args(["train-rl", "--updates", "1", "--matches-per-update", "2"])
     assert args.command == "train-rl"
+    args = parser.parse_args(["train-rl", "--envs", "2"])
+    assert args.envs == 2
     args = parser.parse_args(["robustness", "--episodes", "1"])
     assert args.command == "robustness"
     args = parser.parse_args(["replay-viewer", "--max-steps", "10"])

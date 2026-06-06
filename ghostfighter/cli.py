@@ -143,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--epochs", type=positive_int, default=3)
     p.add_argument("--batch-size", type=positive_int, default=512)
     p.add_argument("--hidden", type=positive_int, default=128)
+    p.add_argument("--envs", type=positive_int, default=1)
     p.add_argument("--seed", type=int, default=1801)
     p.add_argument("--domain-randomization", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--domain-intensity", type=float, default=0.45)
@@ -325,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 hidden=args.hidden,
+                envs=args.envs,
                 seed=args.seed,
                 domain_randomization=args.domain_randomization,
                 domain_intensity=args.domain_intensity,
@@ -439,9 +441,10 @@ def main(argv: list[str] | None = None) -> int:
                     matches_per_update=6,
                     max_steps=max(50, args.max_steps // 2),
                     epochs=max(2, args.epochs // 3),
-                    batch_size=min(args.batch_size, 1024),
-                    hidden=128,
-                    seed=args.seed + 8,
+                        batch_size=min(args.batch_size, 1024),
+                        hidden=128,
+                        envs=4,
+                        seed=args.seed + 8,
                     domain_randomization=True,
                     domain_intensity=0.45,
                 ),

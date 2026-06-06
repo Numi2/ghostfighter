@@ -73,6 +73,7 @@ class PPOConfig:
     value_coef: float = 0.50
     lr: float = 3.0e-4
     hidden: int = 128
+    envs: int = 1
     seed: int = 1801
     snapshot_interval: int = 1
     domain_randomization: bool = True
@@ -175,6 +176,8 @@ def train_ppo_self_play(
 
 
 def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, rng, verbose: bool = False) -> dict[str, object]:
+    if config.envs > 1:
+        return _collect_ppo_rollout_vectorized(model, historical, role_population, config, rng)
     obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf = [], [], [], [], [], []
     episode_returns, episode_lengths = [], []
     term_values = {name: [] for name in REWARD_TERM_NAMES}
@@ -229,6 +232,106 @@ def _collect_ppo_rollout(model, historical, role_population, config: PPOConfig, 
         "episode_returns": episode_returns,
         "episode_lengths": episode_lengths,
         "episodes": config.matches_per_update,
+        "reward_term_sums": term_sums,
+        "reward_term_means": term_means,
+    }
+
+
+def _collect_ppo_rollout_vectorized(model, historical, role_population, config: PPOConfig, rng) -> dict[str, object]:
+    obs_buf, action_buf, logp_buf, value_buf, reward_buf, done_buf = [], [], [], [], [], []
+    episode_returns, episode_lengths = [], []
+    term_values = {name: [] for name in REWARD_TERM_NAMES}
+    envs = []
+    obs_reds, obs_blues, profiles, opponents, totals, lengths = [], [], [], [], [], []
+    for idx in range(config.envs):
+        seed = int(rng.integers(1, 10_000_000))
+        env = FightEnv(config=SimConfig(max_steps=config.max_steps, seed=seed), seed=seed)
+        obs_red, obs_blue = env.reset(randomize=True)
+        profile = None
+        if config.domain_randomization:
+            profile = sample_domain_randomization(rng, config.domain_intensity)
+            apply_domain_randomization(env, profile)
+            obs_red = apply_observation_noise(env.observe(0), rng, profile)
+            obs_blue = apply_observation_noise(env.observe(1), rng, profile)
+        envs.append(env)
+        obs_reds.append(obs_red)
+        obs_blues.append(obs_blue)
+        profiles.append(profile)
+        opponents.append(_sample_opponent_policy(historical, role_population, rng))
+        totals.append(0.0)
+        lengths.append(0)
+
+    completed = 0
+    while completed < config.matches_per_update:
+        active = [i for i, env in enumerate(envs) if not env.done]
+        if not active:
+            break
+        obs_batch = torch.as_tensor(np.asarray([obs_reds[i] for i in active], dtype=np.float32), dtype=torch.float32)
+        with torch.no_grad():
+            logits, values = model(obs_batch)
+            dist = Categorical(logits=logits)
+            actions = dist.sample()
+            logps = dist.log_prob(actions)
+        for local_idx, env_idx in enumerate(active):
+            if completed >= config.matches_per_update:
+                break
+            env = envs[env_idx]
+            action = int(actions[local_idx].item())
+            logp = float(logps[local_idx].item())
+            value = float(values[local_idx].item())
+            action_blue = int(opponents[env_idx].select_action(obs_blues[env_idx], env, 1))
+            pre_env = env.clone()
+            next_red, next_blue, base_reward, _blue_reward, done, info = env.step(action, action_blue)
+            terms = _reward_terms(pre_env, env, float(base_reward), info)
+            reward = float(sum(terms.values()))
+            profile = profiles[env_idx]
+            if profile is not None and not done:
+                apply_external_push(env, rng, profile)
+                next_red = apply_observation_noise(env.observe(0), rng, profile)
+                next_blue = apply_observation_noise(env.observe(1), rng, profile)
+            obs_buf.append(obs_reds[env_idx].copy())
+            action_buf.append(action)
+            logp_buf.append(logp)
+            value_buf.append(value)
+            reward_buf.append(reward)
+            for name in REWARD_TERM_NAMES:
+                term_values[name].append(float(terms[name]))
+            done_buf.append(bool(done))
+            totals[env_idx] += reward
+            lengths[env_idx] += 1
+            obs_reds[env_idx], obs_blues[env_idx] = next_red, next_blue
+            if done:
+                episode_returns.append(float(totals[env_idx]))
+                episode_lengths.append(int(lengths[env_idx]))
+                completed += 1
+                if completed < config.matches_per_update:
+                    seed = int(rng.integers(1, 10_000_000))
+                    envs[env_idx] = FightEnv(config=SimConfig(max_steps=config.max_steps, seed=seed), seed=seed)
+                    obs_red, obs_blue = envs[env_idx].reset(randomize=True)
+                    profile = None
+                    if config.domain_randomization:
+                        profile = sample_domain_randomization(rng, config.domain_intensity)
+                        apply_domain_randomization(envs[env_idx], profile)
+                        obs_red = apply_observation_noise(envs[env_idx].observe(0), rng, profile)
+                        obs_blue = apply_observation_noise(envs[env_idx].observe(1), rng, profile)
+                    obs_reds[env_idx], obs_blues[env_idx] = obs_red, obs_blue
+                    profiles[env_idx] = profile
+                    opponents[env_idx] = _sample_opponent_policy(historical, role_population, rng)
+                    totals[env_idx] = 0.0
+                    lengths[env_idx] = 0
+    advantages, returns = _gae(np.asarray(reward_buf, dtype=np.float32), np.asarray(value_buf, dtype=np.float32), np.asarray(done_buf, dtype=bool), config)
+    term_sums = {name: float(np.sum(values)) for name, values in term_values.items()}
+    term_means = {name: float(np.mean(values)) if values else 0.0 for name, values in term_values.items()}
+    return {
+        "obs": np.asarray(obs_buf, dtype=np.float32),
+        "actions": np.asarray(action_buf, dtype=np.int64),
+        "old_logp": np.asarray(logp_buf, dtype=np.float32),
+        "values": np.asarray(value_buf, dtype=np.float32),
+        "advantages": advantages,
+        "returns": returns,
+        "episode_returns": episode_returns,
+        "episode_lengths": episode_lengths,
+        "episodes": completed,
         "reward_term_sums": term_sums,
         "reward_term_means": term_means,
     }

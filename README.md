@@ -148,6 +148,12 @@ Train with PPO self-play:
 python -m ghostfighter.cli train-rl --out runs/default/rl --updates 8 --matches-per-update 16 --max-steps 90
 ```
 
+For local vectorized rollout collection:
+
+```bash
+python -m ghostfighter.cli train-rl --out runs/default/rl --envs 8 --updates 8 --matches-per-update 64
+```
+
 Run PPO robustness ablations:
 
 ```bash
@@ -264,7 +270,7 @@ GhostFighter demonstrates that operating model end to end.
 - The scaling ladder trains multiple generations with growing trace budgets and reports whether imitation accuracy, stress behavior, and the combined research score improve as data increases.
 - Generation Zero data is created from user-specified policy attributes, so the starting corpus is configurable and randomized rather than hardcoded to one set of scripts.
 - Population self-play reports Elo-style ratings, exploitability gaps, Jensen-Shannon policy diversity, and failure modes across adversarial roles.
-- PPO self-play produces policy checkpoints, decomposed reward-term tables, training curves with KL/clip/explained-variance diagnostics, historical-opponent league matches, payoff matrices, meta-strategy estimates, exploitability analysis, and a leaderboard.
+- PPO self-play supports synchronous multi-environment rollout collection and produces policy checkpoints, decomposed reward-term tables, training curves with KL/clip/explained-variance diagnostics, historical-opponent league matches, payoff matrices, meta-strategy estimates, exploitability analysis, and a leaderboard.
 - Robustness ablations compare nominal, randomized, actuator-degraded, boundary-pressure, and recovery-stress outcomes for PPO policies.
 - The replay viewer makes trained-policy behavior inspectable step by step without rerunning the simulator.
 - Domain-randomized rollouts exercise standard sim-to-real variables and write a dedicated card describing the sampled ranges.
