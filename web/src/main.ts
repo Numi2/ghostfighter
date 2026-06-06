@@ -3,6 +3,7 @@ import "./styles.css";
 type Action = "guard" | "dash" | "jab" | "cross" | "hook" | "kick" | "push" | "recover";
 type Side = "red" | "blue";
 type Driver = "human1" | "human2" | "bot";
+type NetRole = "offline" | "host" | "guest";
 
 interface Fighter {
   x: number;
@@ -76,6 +77,7 @@ app.innerHTML = `
         <button id="reset">Reset</button>
         <select id="mode" aria-label="Match mode">
           <option value="pvp">Local PvP</option>
+          <option value="online">Online PvP</option>
           <option value="humanBot">Human vs Bot</option>
           <option value="botBot">Bot League</option>
         </select>
@@ -101,7 +103,20 @@ app.innerHTML = `
         <div id="blueBars" class="bars"></div>
       </section>
       <section>
+        <h2>Worldwide PvP</h2>
+        <p class="panelNote">Host copies an invite to a friend. Guest pastes it, creates an answer, then host accepts that answer. After connect, host is red and guest is blue.</p>
+        <div class="netGrid">
+          <button id="hostOffer">Create Host Invite</button>
+          <button id="joinOffer">Join Invite</button>
+          <button id="acceptAnswer">Accept Answer</button>
+          <button id="disconnectNet">Disconnect</button>
+        </div>
+        <textarea id="netCode" spellcheck="false" aria-label="Online PvP invite and answer code"></textarea>
+        <div id="netStatus" class="netStatus">offline</div>
+      </section>
+      <section>
         <h2>Train Your Ghost</h2>
+        <p class="panelNote">Train evolves a compact policy genome in your browser. Export DNA or copy a challenge URL so other players can fight your ghost.</p>
         <div class="trainGrid">
           <button id="train">Train 30 sims</button>
           <button id="exportBot">Export DNA</button>
@@ -129,12 +144,18 @@ const exportButton = document.querySelector<HTMLButtonElement>("#exportBot")!;
 const shareButton = document.querySelector<HTMLButtonElement>("#shareBot")!;
 const importButton = document.querySelector<HTMLButtonElement>("#importBot")!;
 const botCode = document.querySelector<HTMLTextAreaElement>("#botCode")!;
+const hostOfferButton = document.querySelector<HTMLButtonElement>("#hostOffer")!;
+const joinOfferButton = document.querySelector<HTMLButtonElement>("#joinOffer")!;
+const acceptAnswerButton = document.querySelector<HTMLButtonElement>("#acceptAnswer")!;
+const disconnectButton = document.querySelector<HTMLButtonElement>("#disconnectNet")!;
+const netCode = document.querySelector<HTMLTextAreaElement>("#netCode")!;
 const arenaRadius = 3.85;
 const events: HitEvent[] = [{ text: "Arena initialized. Choose a mode and start the round.", ttl: 5, kind: "round" }];
 const trailRed: Array<[number, number]> = [];
 const trailBlue: Array<[number, number]> = [];
 const p1: Controls = makeControls();
 const p2: Controls = makeControls();
+const remoteControls: Controls = makeControls();
 
 let red = makeFighter(-1.25, 0);
 let blue = makeFighter(1.25, 0);
@@ -146,9 +167,30 @@ let shake = 0;
 let redBot = baseBot("Red Ghost", 0);
 let blueBot = baseBot("Blue Ghost", 1);
 let champion = baseBot("Champion Ghost", 2);
+let netRole: NetRole = "offline";
+let peer: RTCPeerConnection | null = null;
+let channel: RTCDataChannel | null = null;
+let onlineConnected = false;
+let lastStateSent = 0;
 
 function makeControls(): Controls {
   return { up: false, down: false, left: false, right: false, guard: false, jab: false, cross: false, kick: false, push: false };
+}
+
+function copyControls(source: Controls, target: Controls) {
+  target.up = source.up;
+  target.down = source.down;
+  target.left = source.left;
+  target.right = source.right;
+  target.guard = source.guard;
+  target.jab = source.jab;
+  target.cross = source.cross;
+  target.kick = source.kick;
+  target.push = source.push;
+}
+
+function cloneControls(source: Controls): Controls {
+  return { ...source };
 }
 
 function baseBot(name: string, seed: number): BotGenome {
@@ -183,8 +225,156 @@ function resetRound(full = false) {
   events.unshift({ text: full ? "Match reset." : `Round ${round} reset.`, ttl: 3, kind: "round" });
 }
 
+function serializeFighter(f: Fighter): Fighter {
+  return { ...f };
+}
+
+function applyNetworkState(payload: {
+  red: Fighter;
+  blue: Fighter;
+  round: number;
+  winner: string;
+  running: boolean;
+  events: HitEvent[];
+  trailRed: Array<[number, number]>;
+  trailBlue: Array<[number, number]>;
+}) {
+  red = payload.red;
+  blue = payload.blue;
+  round = payload.round;
+  winner = payload.winner;
+  running = payload.running;
+  events.length = 0;
+  events.push(...payload.events);
+  trailRed.length = 0;
+  trailRed.push(...payload.trailRed);
+  trailBlue.length = 0;
+  trailBlue.push(...payload.trailBlue);
+  startButton.textContent = running ? "Pause" : winner === "active" ? "Start" : "Next Round";
+}
+
+function netSend(message: object) {
+  if (!channel || channel.readyState !== "open") return;
+  channel.send(JSON.stringify(message));
+}
+
+function setNetStatus(text: string) {
+  document.querySelector("#netStatus")!.textContent = text;
+}
+
+function makePeer() {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  pc.onconnectionstatechange = () => {
+    onlineConnected = pc.connectionState === "connected";
+    setNetStatus(`${netRole}: ${pc.connectionState}`);
+    if (onlineConnected) {
+      modeSelect.value = "online";
+      events.unshift({ text: "Online PvP connected.", ttl: 6, kind: "round" });
+      updateHud();
+    }
+  };
+  pc.oniceconnectionstatechange = () => setNetStatus(`${netRole}: ${pc.iceConnectionState}`);
+  return pc;
+}
+
+function waitForIceComplete(pc: RTCPeerConnection) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const check = () => {
+      if (pc.iceGatheringState === "complete") {
+        pc.removeEventListener("icegatheringstatechange", check);
+        resolve();
+      }
+    };
+    pc.addEventListener("icegatheringstatechange", check);
+    setTimeout(() => resolve(), 2500);
+  });
+}
+
+function encodeSignal(data: unknown) {
+  return btoa(JSON.stringify(data));
+}
+
+function decodeSignal(code: string) {
+  return JSON.parse(atob(code.trim()));
+}
+
+function wireChannel(dc: RTCDataChannel) {
+  channel = dc;
+  dc.onopen = () => {
+    onlineConnected = true;
+    modeSelect.value = "online";
+    setNetStatus(`${netRole}: connected`);
+    netSend({ type: "hello", role: netRole });
+    if (netRole === "host") resetRound(true);
+  };
+  dc.onclose = () => {
+    onlineConnected = false;
+    setNetStatus(`${netRole}: disconnected`);
+  };
+  dc.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === "input" && netRole === "host") copyControls(message.controls, remoteControls);
+    if (message.type === "state" && netRole === "guest") applyNetworkState(message);
+    if (message.type === "command" && netRole === "host") {
+      if (message.command === "start") toggleStartLocal();
+      if (message.command === "reset") {
+        running = false;
+        startButton.textContent = "Start";
+        resetRound(true);
+      }
+    }
+  };
+}
+
+async function createHostInvite() {
+  disconnectOnline(false);
+  netRole = "host";
+  peer = makePeer();
+  wireChannel(peer.createDataChannel("ghostfighter"));
+  await peer.setLocalDescription(await peer.createOffer());
+  await waitForIceComplete(peer);
+  netCode.value = encodeSignal({ type: "offer", sdp: peer.localDescription });
+  setNetStatus("host: invite ready, send this code");
+}
+
+async function joinInvite() {
+  disconnectOnline(false);
+  const offer = decodeSignal(netCode.value);
+  if (offer.type !== "offer") throw new Error("Expected host offer code");
+  netRole = "guest";
+  peer = makePeer();
+  peer.ondatachannel = (event) => wireChannel(event.channel);
+  await peer.setRemoteDescription(offer.sdp);
+  await peer.setLocalDescription(await peer.createAnswer());
+  await waitForIceComplete(peer);
+  netCode.value = encodeSignal({ type: "answer", sdp: peer.localDescription });
+  setNetStatus("guest: answer ready, send this code back");
+}
+
+async function acceptAnswer() {
+  if (!peer || netRole !== "host") throw new Error("Create a host invite first");
+  const answer = decodeSignal(netCode.value);
+  if (answer.type !== "answer") throw new Error("Expected guest answer code");
+  await peer.setRemoteDescription(answer.sdp);
+  setNetStatus("host: answer accepted");
+}
+
+function disconnectOnline(resetMode = true) {
+  channel?.close();
+  peer?.close();
+  channel = null;
+  peer = null;
+  onlineConnected = false;
+  netRole = "offline";
+  copyControls(makeControls(), remoteControls);
+  setNetStatus("offline");
+  if (resetMode && modeSelect.value === "online") modeSelect.value = "pvp";
+}
+
 function drivers() {
   const mode = modeSelect.value;
+  if (mode === "online") return { red: "human1" as Driver, blue: "human2" as Driver };
   if (mode === "pvp") return { red: "human1" as Driver, blue: "human2" as Driver };
   if (mode === "humanBot") return { red: "human1" as Driver, blue: "bot" as Driver };
   return { red: "bot" as Driver, blue: "bot" as Driver };
@@ -337,11 +527,18 @@ function botAction(f: Fighter, opponent: Fighter, dt: number, bot: BotGenome, si
 function step(now: number) {
   const dt = Math.min(0.033, (now - last) / 1000);
   last = now;
+  if (onlineConnected && netRole === "guest") {
+    netSend({ type: "input", controls: cloneControls(p1) });
+    draw();
+    requestAnimationFrame(step);
+    return;
+  }
   if (running && winner === "active") {
     const d = drivers();
     if (d.red === "human1") humanAction(red, blue, dt, p1, "red");
     else botAction(red, blue, dt, redBot, "red");
-    if (d.blue === "human2") humanAction(blue, red, dt, p2, "blue");
+    if (onlineConnected && netRole === "host") humanAction(blue, red, dt, remoteControls, "blue");
+    else if (d.blue === "human2") humanAction(blue, red, dt, p2, "blue");
     else botAction(blue, red, dt, blueBot, "blue");
     for (const f of [red, blue]) {
       recover(f, dt);
@@ -362,6 +559,20 @@ function step(now: number) {
     for (const event of events) event.ttl -= dt;
     while (events.length > 9 || (events.length && events[events.length - 1].ttl <= 0)) events.pop();
     if (red.health <= 0 || blue.health <= 0) finishRound(red.health > blue.health ? "RED" : "BLUE");
+  }
+  if (onlineConnected && netRole === "host" && now - lastStateSent > 50) {
+    lastStateSent = now;
+    netSend({
+      type: "state",
+      red: serializeFighter(red),
+      blue: serializeFighter(blue),
+      round,
+      winner,
+      running,
+      events,
+      trailRed,
+      trailBlue,
+    });
   }
   draw();
   requestAnimationFrame(step);
@@ -594,13 +805,15 @@ function botSummary(bot: BotGenome) {
 
 function updateHud() {
   const d = drivers();
+  const redDriver = modeSelect.value === "online" && netRole === "guest" ? "Remote Host" : modeSelect.value === "online" && netRole === "host" ? "You (Host)" : d.red === "bot" ? redBot.name : "Human P1";
+  const blueDriver = modeSelect.value === "online" && netRole === "guest" ? "You (Guest)" : modeSelect.value === "online" && netRole === "host" ? "Remote Guest" : d.blue === "bot" ? blueBot.name : "Human P2";
   document.querySelector("#round")!.textContent = String(round);
   document.querySelector("#range")!.textContent = `${distance(red, blue).toFixed(2)}m`;
   document.querySelector("#risk")!.textContent = `${riskScore(red).toFixed(2)} / ${riskScore(blue).toFixed(2)}`;
   document.querySelector("#modeText")!.textContent = modeSelect.selectedOptions[0].textContent || "mode";
   document.querySelector("#winner")!.textContent = winner;
-  document.querySelector("#redBars")!.innerHTML = `<div class="driver">${d.red === "bot" ? redBot.name : "Human P1"}</div>` + bar("Health", red.health / 100, "#ef4b48") + bar("Stamina", red.stamina, "#ffbf5b") + bar("Balance", red.balance, "#64e092") + bar("Damage", red.damage, "#ff7a6b");
-  document.querySelector("#blueBars")!.innerHTML = `<div class="driver">${d.blue === "bot" ? blueBot.name : "Human P2"}</div>` + bar("Health", blue.health / 100, "#4f8cff") + bar("Stamina", blue.stamina, "#ffbf5b") + bar("Balance", blue.balance, "#64e092") + bar("Damage", blue.damage, "#ff7a6b");
+  document.querySelector("#redBars")!.innerHTML = `<div class="driver">${redDriver}</div>` + bar("Health", red.health / 100, "#ef4b48") + bar("Stamina", red.stamina, "#ffbf5b") + bar("Balance", red.balance, "#64e092") + bar("Damage", red.damage, "#ff7a6b");
+  document.querySelector("#blueBars")!.innerHTML = `<div class="driver">${blueDriver}</div>` + bar("Health", blue.health / 100, "#4f8cff") + bar("Stamina", blue.stamina, "#ffbf5b") + bar("Balance", blue.balance, "#64e092") + bar("Damage", blue.damage, "#ff7a6b");
   document.querySelector("#botStats")!.innerHTML = botSummary(champion);
   document.querySelector("#feed")!.innerHTML = events.map((e) => `<div class="${e.kind}">${e.text}</div>`).join("");
 }
@@ -633,20 +846,33 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
-startButton.addEventListener("click", () => {
+function toggleStartLocal() {
   if (winner !== "active") {
     winner = "active";
     resetRound();
   }
   running = !running;
   startButton.textContent = running ? "Pause" : "Start";
+}
+
+startButton.addEventListener("click", () => {
+  if (onlineConnected && netRole === "guest") {
+    netSend({ type: "command", command: "start" });
+    return;
+  }
+  toggleStartLocal();
 });
 resetButton.addEventListener("click", () => {
+  if (onlineConnected && netRole === "guest") {
+    netSend({ type: "command", command: "reset" });
+    return;
+  }
   running = false;
   startButton.textContent = "Start";
   resetRound(true);
 });
 modeSelect.addEventListener("change", () => {
+  if (modeSelect.value !== "online" && netRole !== "offline") disconnectOnline(false);
   resetRound(true);
   updateHud();
 });
@@ -684,6 +910,10 @@ importButton.addEventListener("click", () => {
   resetRound(true);
   events.unshift({ text: `Imported ${imported.name}. Fight it worldwide by sharing DNA.`, ttl: 5, kind: "train" });
 });
+hostOfferButton.addEventListener("click", () => createHostInvite().catch((error) => setNetStatus(`host error: ${error.message}`)));
+joinOfferButton.addEventListener("click", () => joinInvite().catch((error) => setNetStatus(`join error: ${error.message}`)));
+acceptAnswerButton.addEventListener("click", () => acceptAnswer().catch((error) => setNetStatus(`answer error: ${error.message}`)));
+disconnectButton.addEventListener("click", () => disconnectOnline(true));
 
 botCode.value = encodeBot(champion);
 importFromUrl();

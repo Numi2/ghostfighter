@@ -172,6 +172,13 @@ h2 {
   font-size: 17px;
 }
 
+.panelNote {
+  margin: -5px 0 12px;
+  color: #aebdd0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -249,11 +256,24 @@ h2 {
   border-left-color: #b891ff;
 }
 
-.trainGrid {
+.trainGrid,
+.netGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.trainGrid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.trainGrid #shareBot {
+  grid-column: 1 / -1;
+}
+
+.netGrid {
+  grid-template-columns: 1fr 1fr;
 }
 
 #importBot {
@@ -266,6 +286,16 @@ h2 {
   color: #dbe7f5;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.netStatus {
+  margin-top: 10px;
+  border: 1px solid rgba(120, 144, 170, 0.24);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #dbe7f5;
+  background: #101720;
+  font-size: 13px;
 }
 
 .dnaGrid {
